@@ -103,7 +103,7 @@ allInstitutions = [
 year=2020 # todo use this in the search!?
 
 
-email = st.text_input("User e-mail:", key="OpenAlex user email", value='blanca.pueche@cnb.csic.es')
+email = st.text_input("User e-mail:", key="OpenAlex user email", value='bpuecheg@alumnos.nebrija.es')
 
 options = ['Institute', 'Author']
 searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
@@ -151,11 +151,12 @@ if inputIds:
                     fnAll = "app/dfMultInst.p"
                     pickle.dump(dfAll, open(fnAll, "wb"))
                 elif searchBy == options[1]:
-                    #aids = ['A5050710342', 'A5071564228', 'A5039659064']
+                    #aids = ['A5050710342', 'A5051113581', 'A5010137759', 'A5039659064']
                     aids = [x.strip() for x in inputIds.split(",") if x.strip()]
                     aids = checkValid(aids, 'A', st)
                     inst_ids = get_inst_ids_from_authors(aids, email)
-                    for inst_id in inst_ids:
+                    print(set(inst_ids))
+                    for inst_id in set(inst_ids):
                         try:
                             aids_in_inst = authors_working_at_institution_in_year(inst_id, year, email)
                         except Exception as e:
@@ -191,11 +192,8 @@ if inputIds:
               for c in cols:
                   col = f"{c}{suffix}"
                   d[f"{col}Perc"] = d[col].rank(pct=True)
-                  print(d[f"{col}Perc"])
             d["avgPerc1"]=(d["citationAvg1Perc"]+d["count1Perc"]+d["maxCitation1Perc"])/3
-            print(d["avgPerc1"])
             d["avgPerc2"]=(d["citationAvg2Perc"]+d["count2Perc"]+d["maxCitation2Perc"])/3
-            print(d["avgPerc2"])
 
             #filter if only specific authors
             if searchBy == options[1]:
@@ -230,6 +228,7 @@ if inputIds:
         lambda_val = None
         gamma = None
 
+        st.header('Budget allocation')
         col1, col2, col3 = st.columns(3)
         with col1:
             alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00)
@@ -250,7 +249,7 @@ if inputIds:
                     add_columns=True
                 )
 
-            st.header('Budget allocation')
+
             st.dataframe(alloc)
             st.caption(f"**Shape:** {alloc.shape}")
 
