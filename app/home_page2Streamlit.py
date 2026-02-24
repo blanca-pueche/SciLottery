@@ -103,7 +103,7 @@ allInstitutions = [
 year=2020 # todo use this in the search!?
 
 
-email = st.text_input("User e-mail:", key="OpenAlex user email", value='bpuecheg@alumnos.nebrija.es')
+email = st.text_input("User e-mail:", key="OpenAlex user email", value='blanca.pueche@cnb.csic.es')
 
 options = ['Institute', 'Author']
 searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
@@ -127,7 +127,6 @@ elif searchBy == options[1]:
     fnAll = "app/dfMultAids.p"
     if os.path.exists(fnAll):
         dfAll = pickle.load(open(fnAll, "rb"))
-        print(dfAll)
 
 # submit
 if inputIds:
@@ -155,7 +154,6 @@ if inputIds:
                     aids = [x.strip() for x in inputIds.split(",") if x.strip()]
                     aids = checkValid(aids, 'A', st)
                     inst_ids = get_inst_ids_from_authors(aids, email)
-                    print(set(inst_ids))
                     for inst_id in set(inst_ids):
                         try:
                             aids_in_inst = authors_working_at_institution_in_year(inst_id, year, email)
@@ -199,6 +197,7 @@ if inputIds:
             if searchBy == options[1]:
                 selected_aids = [x.strip() for x in inputIds.split(",") if x.strip()]
                 d = d[d["authorID"].isin(selected_aids)]
+
 
             dfAll[inst_id] = d
 
