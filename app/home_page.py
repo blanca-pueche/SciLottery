@@ -53,14 +53,6 @@ h3 {font-size: 19px !important; margin-bottom: 0.2rem;}
 </style>
 """, unsafe_allow_html=True)
 
-logo_placeholder = st.empty()
-logo_placeholder.markdown(
-    """
-    <div class="fixed-logo"></div>
-    """,
-    unsafe_allow_html=True
-)
-
 col1, col2 = st.columns([1,4])
 st.logo("assets/bcu_logo.png", size="large")
 
@@ -83,7 +75,6 @@ year = st.number_input("Year:", help="Year to search in OpenAlex", value=2020)
 options = ['Institute', 'Author']
 searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
 
-
 if not email and searchBy:
     st.warning("Email must be entered to continue")
     st.stop()
@@ -105,15 +96,16 @@ elif searchBy == options[1]:
     if os.path.exists(fnAll):
         dfAll = pickle.load(open(fnAll, "rb"))
 
-# submit
+# Submit to retrieve info
 if inputIds:
+    # todo delete this check when its finished
     if not dfAll:
         with st.spinner("OpenAlex search..."):
             try:
                 if searchBy == options[0]:
                     #inst_id = ['i4210151560', 'i4210129656']
                     inst_ids = [x.strip() for x in inputIds.split(",") if x.strip()]
-                    #check validity
+                    #check id validity
                     inst_ids = checkValid(inst_ids, 'i', st)
                     for inst in inst_ids:
                         try:
@@ -121,14 +113,16 @@ if inputIds:
                         except Exception as e:
                             st.error(f"Error retrieving authors for institution {inst}: {e}")
                             st.stop()
-                        df = build_author_df_and_unique_work_distributions(aids, Y=year, mailto=MAILTO, sleep_s=0.05)
+                        df = build_author_df_and_unique_work_distributions(aids, Y=year, mailto=email, sleep_s=0.05)
                         df = df[(df["count1"] > 0)].reset_index(drop=True)
                         dfAll[inst_ids] = df
+                    # todo delete this when its finished
                     fnAll = "app/dfMultInst.p"
                     pickle.dump(dfAll, open(fnAll, "wb"))
                 elif searchBy == options[1]:
                     #aids = ['A5050710342', 'A5051113581', 'A5010137759', 'A5039659064']
                     aids = [x.strip() for x in inputIds.split(",") if x.strip()]
+                    # check id validity
                     aids = checkValid(aids, 'A', st)
                     inst_ids = get_inst_ids_from_authors(aids, email)
                     for inst_id in set(inst_ids):
@@ -136,14 +130,11 @@ if inputIds:
                             aids_in_inst = authors_working_at_institution_in_year(inst_id, year, email)
                         except Exception as e:
                             st.error(f"Error retrieving authors for institution {inst_id}: {e}")
-                            #st.stop()
-
-                        df_inst = build_author_df_and_unique_work_distributions(
-                            aids_in_inst, Y=year, mailto=MAILTO, sleep_s=1
-                        )
-                        df_inst = df_inst[df_inst["count1"] > 0].reset_index(drop=True)
-
-                        dfAll[inst_id] = df_inst
+                            st.stop()
+                        df = build_author_df_and_unique_work_distributions(aids_in_inst, Y=year, mailto=email, sleep_s=0.05)
+                        df = df[df["count1"] > 0].reset_index(drop=True)
+                        dfAll[inst_id] = df
+                    # todo delete this when its finished
                     fnAll = "app/dfMultAids.p"
                     pickle.dump(dfAll, open(fnAll, "wb"))
 
