@@ -96,150 +96,103 @@ elif searchBy == options[1]:
 if inputIds:
     minPapers = st.number_input("Minimum number of papers per author:", value=10, min_value=0)
     # todo delete this check when its finished
-    if not dfAll:
-        with st.spinner("OpenAlex search..."):
-            try:
-                if searchBy == options[0]:
-                    inst_ids = sanitizeIds(inputIds, st, prefix='i')
-                    #check id validity
-                    inst_ids = checkValid(inst_ids, 'i', st)
-                    for inst in inst_ids:
-                        aids = None
-                        for attempt in range(5):
-                            aids, msg = authors_working_at_institution_in_year(inst, year, email)
+    if st.button("Perform search", type='primary'):
+        if not dfAll:
+            with st.spinner("OpenAlex search..."):
+                try:
+                    if searchBy == options[0]:
+                        inst_ids = sanitizeIds(inputIds, st, prefix='i')
+                        #check id validity
+                        inst_ids = checkValid(inst_ids, 'i', st)
+                        for inst in inst_ids:
+                            aids = None
+                            for attempt in range(5):
+                                aids, msg = authors_working_at_institution_in_year(inst, year, email)
+                                if not aids:
+                                    st.warning(f"{msg}. Retrying...")
+                                    time.sleep(1 * (2 ** attempt))
+                                    continue
+                                break
                             if not aids:
-                                st.warning(f"{msg}. Retrying...")
+                                st.warning(f"Skipping institution {inst} due to repeated errors.")
+                                continue
+
+                            df = build_author_df_and_unique_work_distributions(
+                                aids, Y=year, mailto=email, sleep_s=0.05
+                            )
+                            df = df[df["count1"] >= minPapers].reset_index(drop=True)
+                            dfAll[inst] = df
+                    elif searchBy == options[1]:
+                        aids = sanitizeIds(inputIds, st, prefix='A')
+                        # check id validity
+                        aids = checkValid(aids, 'A', st)
+                        df = None
+                        for attempt in range(5):
+                            df = build_author_df_and_unique_work_distributions(
+                                aids, Y=year, mailto=email, sleep_s=0.05
+                            )
+                            if df is None or df.empty:
+                                st.warning("Rate limit hit while retrieving author data. Retrying...")
                                 time.sleep(1 * (2 ** attempt))
                                 continue
                             break
-                        if not aids:
-                            st.warning(f"Skipping institution {inst} due to repeated errors.")
-                            continue
 
-                        df = build_author_df_and_unique_work_distributions(
-                            aids, Y=year, mailto=email, sleep_s=0.05
-                        )
-                        df = df[df["count1"] >= minPapers].reset_index(drop=True)
-                        dfAll[inst] = df
-
-                    # todo delete this when its finished
-                    #fnAll = "app/dfMultInst.p"
-                    #pickle.dump(dfAll, open(fnAll, "wb"))
-                elif searchBy == options[1]:
-                    aids = sanitizeIds(inputIds, st, prefix='A')
-                    # check id validity
-                    aids = checkValid(aids, 'A', st)
-                    df = None
-                    for attempt in range(5):
-                        df = build_author_df_and_unique_work_distributions(
-                            aids, Y=year, mailto=email, sleep_s=0.05
-                        )
                         if df is None or df.empty:
-                            st.warning("Rate limit hit while retrieving author data. Retrying...")
-                            time.sleep(1 * (2 ** attempt))
-                            continue
-                        break
+                            st.warning("Author data incomplete due to repeated errors.")
+                        else:
+                            df = df[df["count1"] >= minPapers].reset_index(drop=True)
+                            dfAll["inputAIDs"] = df
+                except Exception as e:
+                    st.error(f"Unexpected error during OpenAlex search: {e}")
+                    st.stop()
 
-                    if df is None or df.empty:
-                        st.warning("Author data incomplete due to repeated errors.")
-                    else:
-                        df = df[df["count1"] >= minPapers].reset_index(drop=True)
-                        dfAll["inputAIDs"] = df
-                    # todo delete this when its finished
-                    #fnAll = "app/dfMultAids.p"
-                    #pickle.dump(dfAll, open(fnAll, "wb"))
+        if dfAll:
+            # Add citations columns
+            cols = ["count", "citationAvg", "maxCitation"]
+            dfClean = {}
+            parts = []
 
-            except Exception as e:
-                st.error(f"Unexpected error during OpenAlex search: {e}")
-                st.stop()
+            for inst_id, df in dfAll.items():
+                d = df.loc[df["count1"] > 1].copy()
 
-    if dfAll:
-        # Add citations columns
-        cols = ["count", "citationAvg", "maxCitation"]
-        dfClean = {}
-        parts = []
+                d["citationAvg1"] = d["citations1"] / d["count1"]
+                d["citationAvg2"] = d["citations2"] / d["count2"]
 
-        for inst_id, df in dfAll.items():
-            d = df.loc[df["count1"] > 1].copy()
+                for suffix in ["1","2"]:
+                  for c in cols:
+                      col = f"{c}{suffix}"
+                      d[f"{col}Perc"] = d[col].rank(pct=True)
+                d["avgPerc1"]=(d["citationAvg1Perc"]+d["count1Perc"]+d["maxCitation1Perc"])/3
+                d["avgPerc2"]=(d["citationAvg2Perc"]+d["count2Perc"]+d["maxCitation2Perc"])/3
 
-            d["citationAvg1"] = d["citations1"] / d["count1"]
-            d["citationAvg2"] = d["citations2"] / d["count2"]
-
-            for suffix in ["1","2"]:
-              for c in cols:
-                  col = f"{c}{suffix}"
-                  d[f"{col}Perc"] = d[col].rank(pct=True)
-            d["avgPerc1"]=(d["citationAvg1Perc"]+d["count1Perc"]+d["maxCitation1Perc"])/3
-            d["avgPerc2"]=(d["citationAvg2Perc"]+d["count2Perc"]+d["maxCitation2Perc"])/3
-
-            #filter if only specific authors
-            if searchBy == options[1]:
-                selected_aids = [x.strip() for x in inputIds.split(",") if x.strip()]
-                d = d[d["authorID"].isin(selected_aids)]
+                #filter if only specific authors
+                if searchBy == options[1]:
+                    selected_aids = [x.strip() for x in inputIds.split(",") if x.strip()]
+                    d = d[d["authorID"].isin(selected_aids)]
 
 
-            dfAll[inst_id] = d
+                dfAll[inst_id] = d
 
-            # collect only percentile columns
-            perc_cols = [f"{c}{suffix}Perc" for c in cols for suffix in ["1", "2"]]
-            out = d.loc[:, ["authorID","avgPerc1","avgPerc2"]+perc_cols].copy()
+                # collect only percentile columns
+                perc_cols = [f"{c}{suffix}Perc" for c in cols for suffix in ["1", "2"]]
+                out = d.loc[:, ["authorID","avgPerc1","avgPerc2"]+perc_cols].copy()
 
-            parts.append(out)
-            dfClean[inst_id] = d
+                parts.append(out)
+                dfClean[inst_id] = d
 
-        df = pd.concat(parts, axis=0, ignore_index=True)
-        df = (
-            df
-            .sort_values(by="avgPerc1", ascending=False)
-            .reset_index(drop=True)
-        )
+            df = pd.concat(parts, axis=0, ignore_index=True)
+            df = (
+                df
+                .sort_values(by="avgPerc1", ascending=False)
+                .reset_index(drop=True)
+            )
 
-        st.header('Performance')
-        df["authorID"] = df["authorID"].apply(
-            lambda x: f"https://openalex.org/{x}"
-        )
-        st.dataframe(
-            df,
-            column_config={
-                "authorID": st.column_config.LinkColumn(
-                    "authorID",
-                    display_text=r"https://openalex\.org/(.*)"
-                )
-            }
-        )
-        st.caption(f"**Shape:** {df.shape}", )
-
-        score_col = "avgPerc1"
-        target_col = "avgPerc2"
-
-        alpha = None
-        lambda_val = None
-        gamma = None
-
-        st.header('Budget allocation')
-        B = st.number_input("Total budget:", help="", value=1)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00)
-        with col2:
-            lambda_val = st.number_input("Lambda:", value=0.8, min_value=0.00, max_value=1.00)
-        with col3:
-            gamma = st.number_input("Gamma:", value=1.5)
-
-        if st.button("Submit", type='primary'):
-            alloc = allocate_budget(
-                    df=df,
-                    B=B,
-                    score_col='avgPerc1',
-                    alpha=alpha,
-                    lambda_uniform=lambda_val,
-                    gamma=gamma,
-                    id_col='authorID',
-                    add_columns=True
-                )
-
+            st.header('Performance')
+            df["authorID"] = df["authorID"].apply(
+                lambda x: f"https://openalex.org/{x}"
+            )
             st.dataframe(
-                alloc,
+                df,
                 column_config={
                     "authorID": st.column_config.LinkColumn(
                         "authorID",
@@ -247,7 +200,47 @@ if inputIds:
                     )
                 }
             )
-            st.caption(f"**Shape:** {alloc.shape}")
+            st.caption(f"**Shape:** {df.shape}", )
+
+            score_col = "avgPerc1"
+            target_col = "avgPerc2"
+
+            alpha = None
+            lambda_val = None
+            gamma = None
+
+            st.header('Budget allocation')
+            B = st.number_input("Total budget:", help="", value=1)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00)
+            with col2:
+                lambda_val = st.number_input("Lambda:", value=0.8, min_value=0.00, max_value=1.00)
+            with col3:
+                gamma = st.number_input("Gamma:", value=1.5)
+
+            if st.button("Submit", type='primary'):
+                alloc = allocate_budget(
+                        df=df,
+                        B=B,
+                        score_col='avgPerc1',
+                        alpha=alpha,
+                        lambda_uniform=lambda_val,
+                        gamma=gamma,
+                        id_col='authorID',
+                        add_columns=True
+                    )
+
+                st.dataframe(
+                    alloc,
+                    column_config={
+                        "authorID": st.column_config.LinkColumn(
+                            "authorID",
+                            display_text=r"https://openalex\.org/(.*)"
+                        )
+                    }
+                )
+                st.caption(f"**Shape:** {alloc.shape}")
 
 
 st.markdown("""

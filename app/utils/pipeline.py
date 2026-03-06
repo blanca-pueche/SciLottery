@@ -140,24 +140,6 @@ def citation_distribution_for_work_set(work_ids, y0: int, y1: int, mailto: str,
         dist.append(citation_count_for_work_in_year_range(wid, y0, y1, mailto=mailto, sleep_s=sleep_s))
     return dist
 
-def get_inst_ids_from_authors(aids: str, email: str):
-    inst_ids = []
-    for aid in aids:
-        url = f"https://api.openalex.org/authors/{aid}"
-        params = {"mailto": email}
-        r = requests.get(url, params=params)
-        if r.status_code != 200:
-            inst_ids.append(None)
-            continue
-        data = r.json()
-        lkis = data.get("last_known_institutions", [])
-        if len(lkis) > 0:
-            inst = lkis[0]["id"].split("/")[-1]
-            inst_ids.append(inst)
-        else:
-            inst_ids.append(None)
-    return inst_ids
-
 def build_author_df_and_unique_work_distributions(aids, Y: int, mailto: str,
                                                   sleep_s: float = 0.0,
                                                   per_page_works: int = 200):
@@ -482,38 +464,6 @@ def utility_from_params(df, B, score_col, alpha, lambda_uniform, gamma,
         return np.nan
 
     return float(np.dot(b[mask], y[mask]))
-
-
-def grid_search_hyperparams(df, B, score_col,
-                            alphas=None, lambdas=None, gammas=None,
-                            target_col="avgPerc2",
-                            b_min=0.0, b_max=np.inf, id_col="authorID"):
-    """
-    Brute-force grid search over (alpha, lambda_uniform, gamma).
-    Returns (best_params, results_df_sorted).
-    """
-    if alphas is None:
-        alphas = np.linspace(0.0, 1.0, 21)          # 0.00, 0.05, ..., 1.00
-    if lambdas is None:
-        lambdas = np.linspace(0.0, 1.0, 21)         # 0.00, 0.05, ..., 1.00
-    if gammas is None:
-        gammas = np.array([0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0])
-
-    rows = []
-    for a in alphas:
-        for lam in lambdas:
-            for g in gammas:
-                U = utility_from_params(
-                    df=df, B=B, score_col=score_col,
-                    alpha=float(a), lambda_uniform=float(lam), gamma=float(g),
-                    target_col=target_col, b_min=b_min, b_max=b_max, id_col=id_col
-                )
-                row={"alpha": float(a), "lambda": float(lam), "gamma": float(g), "utility": U}
-                rows.append(row)
-
-    res = pd.DataFrame(rows).sort_values("utility", ascending=False).reset_index(drop=True)
-    best = res.iloc[0].to_dict()
-    return best, res
 
 def checkValid(ids, letter, st):
     letter = letter.lower()
