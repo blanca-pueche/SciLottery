@@ -7,6 +7,8 @@ from utils.pipeline import *
 import pandas as pd
 import streamlit as st
 
+if "dfAll" not in st.session_state:
+    st.session_state.dfAll = None
 st.set_page_config(
     page_title="OpenAlex Performance Predictor CNB",
     page_icon='📈'
@@ -142,105 +144,107 @@ if inputIds:
                         else:
                             df = df[df["count1"] >= minPapers].reset_index(drop=True)
                             dfAll["inputAIDs"] = df
+                    st.session_state.dfAll = dfAll
                 except Exception as e:
                     st.error(f"Unexpected error during OpenAlex search: {e}")
                     st.stop()
 
-        if dfAll:
-            # Add citations columns
-            cols = ["count", "citationAvg", "maxCitation"]
-            dfClean = {}
-            parts = []
+dfAll = st.session_state.dfAll
+if dfAll:
+    # Add citations columns
+    cols = ["count", "citationAvg", "maxCitation"]
+    dfClean = {}
+    parts = []
 
-            for inst_id, df in dfAll.items():
-                d = df.loc[df["count1"] > 1].copy()
+    for inst_id, df in dfAll.items():
+        d = df.loc[df["count1"] > 1].copy()
 
-                d["citationAvg1"] = d["citations1"] / d["count1"]
-                d["citationAvg2"] = d["citations2"] / d["count2"]
+        d["citationAvg1"] = d["citations1"] / d["count1"]
+        d["citationAvg2"] = d["citations2"] / d["count2"]
 
-                for suffix in ["1","2"]:
-                  for c in cols:
-                      col = f"{c}{suffix}"
-                      d[f"{col}Perc"] = d[col].rank(pct=True)
-                d["avgPerc1"]=(d["citationAvg1Perc"]+d["count1Perc"]+d["maxCitation1Perc"])/3
-                d["avgPerc2"]=(d["citationAvg2Perc"]+d["count2Perc"]+d["maxCitation2Perc"])/3
+        for suffix in ["1","2"]:
+          for c in cols:
+              col = f"{c}{suffix}"
+              d[f"{col}Perc"] = d[col].rank(pct=True)
+        d["avgPerc1"]=(d["citationAvg1Perc"]+d["count1Perc"]+d["maxCitation1Perc"])/3
+        d["avgPerc2"]=(d["citationAvg2Perc"]+d["count2Perc"]+d["maxCitation2Perc"])/3
 
-                #filter if only specific authors
-                if searchBy == options[1]:
-                    selected_aids = [x.strip() for x in inputIds.split(",") if x.strip()]
-                    d = d[d["authorID"].isin(selected_aids)]
+        #filter if only specific authors
+        if searchBy == options[1]:
+            selected_aids = [x.strip() for x in inputIds.split(",") if x.strip()]
+            d = d[d["authorID"].isin(selected_aids)]
 
 
-                dfAll[inst_id] = d
+        dfAll[inst_id] = d
 
-                # collect only percentile columns
-                perc_cols = [f"{c}{suffix}Perc" for c in cols for suffix in ["1", "2"]]
-                out = d.loc[:, ["authorID","avgPerc1","avgPerc2"]+perc_cols].copy()
+        # collect only percentile columns
+        perc_cols = [f"{c}{suffix}Perc" for c in cols for suffix in ["1", "2"]]
+        out = d.loc[:, ["authorID","avgPerc1","avgPerc2"]+perc_cols].copy()
 
-                parts.append(out)
-                dfClean[inst_id] = d
+        parts.append(out)
+        dfClean[inst_id] = d
 
-            df = pd.concat(parts, axis=0, ignore_index=True)
-            df = (
-                df
-                .sort_values(by="avgPerc1", ascending=False)
-                .reset_index(drop=True)
+    df = pd.concat(parts, axis=0, ignore_index=True)
+    df = (
+        df
+        .sort_values(by="avgPerc1", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    st.header('Performance')
+    df["authorID"] = df["authorID"].apply(
+        lambda x: f"https://openalex.org/{x}"
+    )
+    st.dataframe(
+        df,
+        column_config={
+            "authorID": st.column_config.LinkColumn(
+                "authorID",
+                display_text=r"https://openalex\.org/(.*)"
+            )
+        }
+    )
+    st.caption(f"**Shape:** {df.shape}", )
+
+    score_col = "avgPerc1"
+    target_col = "avgPerc2"
+
+    alpha = None
+    lambda_val = None
+    gamma = None
+
+    st.header('Budget allocation')
+    B = st.number_input("Total budget:", help="", value=1)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00)
+    with col2:
+        lambda_val = st.number_input("Lambda:", value=0.8, min_value=0.00, max_value=1.00)
+    with col3:
+        gamma = st.number_input("Gamma:", value=1.5)
+
+    if st.button("Submit", type='primary'):
+        alloc = allocate_budget(
+                df=df,
+                B=B,
+                score_col='avgPerc1',
+                alpha=alpha,
+                lambda_uniform=lambda_val,
+                gamma=gamma,
+                id_col='authorID',
+                add_columns=True
             )
 
-            st.header('Performance')
-            df["authorID"] = df["authorID"].apply(
-                lambda x: f"https://openalex.org/{x}"
-            )
-            st.dataframe(
-                df,
-                column_config={
-                    "authorID": st.column_config.LinkColumn(
-                        "authorID",
-                        display_text=r"https://openalex\.org/(.*)"
-                    )
-                }
-            )
-            st.caption(f"**Shape:** {df.shape}", )
-
-            score_col = "avgPerc1"
-            target_col = "avgPerc2"
-
-            alpha = None
-            lambda_val = None
-            gamma = None
-
-            st.header('Budget allocation')
-            B = st.number_input("Total budget:", help="", value=1)
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00)
-            with col2:
-                lambda_val = st.number_input("Lambda:", value=0.8, min_value=0.00, max_value=1.00)
-            with col3:
-                gamma = st.number_input("Gamma:", value=1.5)
-
-            if st.button("Submit", type='primary'):
-                alloc = allocate_budget(
-                        df=df,
-                        B=B,
-                        score_col='avgPerc1',
-                        alpha=alpha,
-                        lambda_uniform=lambda_val,
-                        gamma=gamma,
-                        id_col='authorID',
-                        add_columns=True
-                    )
-
-                st.dataframe(
-                    alloc,
-                    column_config={
-                        "authorID": st.column_config.LinkColumn(
-                            "authorID",
-                            display_text=r"https://openalex\.org/(.*)"
-                        )
-                    }
+        st.dataframe(
+            alloc,
+            column_config={
+                "authorID": st.column_config.LinkColumn(
+                    "authorID",
+                    display_text=r"https://openalex\.org/(.*)"
                 )
-                st.caption(f"**Shape:** {alloc.shape}")
+            }
+        )
+        st.caption(f"**Shape:** {alloc.shape}")
 
 
 st.markdown("""
