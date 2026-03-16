@@ -8,12 +8,21 @@ import pandas as pd
 
 BASE_URL = "https://api.openalex.org"
 
-def authors_working_at_institution_in_year(inst_id: str, year: int, email: str, per_page: int = 10):
+def authors_working_at_institution_in_year(
+        inst_id: str,
+        year: int,
+        mailto: str,
+        per_page: int = 200,
+        min_total_works: int | None = None,
+        min_total_citations: int | None = None):
     """
     Returns a set of AIDs (A...) for authors who:
-      (1) have last_known_institutions containing inst_id  (proxy: currently at institution)
+      (1) have last_known_institutions containing inst_id
       (2) have an affiliations entry for inst_id whose years include `year`
+      (3) optionally satisfy total works constraints
+      (4) optionally satisfy minimum citation count
     """
+
     inst_id = inst_id.split("/")[-1]
     if inst_id[0].lower() == "i":
         inst_id = "I" + inst_id[1:]
@@ -22,7 +31,6 @@ def authors_working_at_institution_in_year(inst_id: str, year: int, email: str, 
     msg=''
     cursor = "*"
 
-    # Prefilter: authors who ever had the institution (reduces search space)
     prefilter = f"affiliations.institution.id:{inst_id}"
 
     while cursor:
@@ -30,25 +38,42 @@ def authors_working_at_institution_in_year(inst_id: str, year: int, email: str, 
             "filter": prefilter,
             "per_page": per_page,
             "cursor": cursor,
-            "select": "id,last_known_institutions,affiliations",
-            "mailto": email,
+            "select": "id,last_known_institutions,affiliations,works_count,cited_by_count",
+            "mailto": mailto,
         }
-
         try:
             r = requests.get(f"{BASE_URL}/authors", params=params, timeout=60)
             r.raise_for_status()
             data = r.json()
 
             for a in data.get("results", []):
+
+                # (0) filters on works and citations
+                wc = a.get("works_count", 0)
+                cc = a.get("cited_by_count", 0)
+
+                if min_total_works is not None and wc < min_total_works:
+                    continue
+
+                if min_total_citations is not None and cc < min_total_citations:
+                    continue
+
+                # (1) current/last includes institution
                 lkis = a.get("last_known_institutions") or []
-                lk_ids = {x["id"].split("/")[-1] for x in lkis if isinstance(x, dict) and "id" in x}
+                lk_ids = {x["id"].split("/")[-1]
+                          for x in lkis
+                          if isinstance(x, dict) and "id" in x}
+
                 if inst_id not in lk_ids:
                     continue
 
+                # (2) affiliation history includes institution in target year
                 ok_year = False
                 for aff in a.get("affiliations") or []:
-                    inst_aff_id = aff.get("institution", {}).get("id", "").split("/")[-1]
+                    inst = aff.get("institution") or {}
+                    inst_aff_id = inst.get("id", "").split("/")[-1] if inst.get("id") else ""
                     years = aff.get("years") or []
+
                     if inst_aff_id == inst_id and year in years:
                         ok_year = True
                         break
@@ -68,7 +93,50 @@ def authors_working_at_institution_in_year(inst_id: str, year: int, email: str, 
             msg = (f"Error retrieving authors for institution {inst_id}: {e}. Continuing anyway.")
             break
 
+        return aids, msg
+
     return aids, msg
+
+def count_author_works_in_period(author_id: str, mailto: str,
+                                 start_year: int,
+                                 end_year: int) -> int:
+    """
+    Exact number of works for an author in a given institution and date range.
+    """
+    if author_id[0].lower() == "a":
+        author_id = "A" + author_id[1:]
+    filt = (
+        f"authorships.author.id:{author_id},"
+        f"from_publication_date:{start_year}-01-01,"
+        f"to_publication_date:{end_year}-12-31"
+    )
+
+    params = {
+        "filter": filt,
+        "per_page": 1,   # we only need meta.count
+        "mailto": mailto,
+    }
+
+    r = requests.get(f"{BASE_URL}/works", params=params, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    return data.get("meta", {}).get("count", 0)
+
+def count_author_works_in_period_safe(author_id: str, mailto: str,
+                                      start_year: int, end_year: int,
+                                      max_retries: int = 3) -> int | None:
+    """
+    Safe wrapper around count_author_works_in_period:
+    retries a few times if request fails. Returns None if still failing.
+    """
+    for attempt in range(max_retries):
+        try:
+            return count_author_works_in_period(author_id, mailto, start_year, end_year)
+        except requests.RequestException as e:
+            # Rate limit or network error
+            print(f"Attempt {attempt+1} failed for {author_id}: {e}")
+            time.sleep(1 * (2 ** attempt))  # exponential backoff
+    return None
 
 def get_json_with_retry(endpoint, params, max_retries=5, timeout=60):
     delay = 1.0
@@ -121,8 +189,21 @@ def get_author_work_ids_in_year_range(aid: str, y0: int, y1: int, mailto: str, p
     return uniq
 
 def citation_count_for_work_in_year_range(
-    wid: str, y0: int, y1: int, mailto: str, sleep_s: float = 0.0
+    wid: str,
+    y0: int,
+    y1: int,
+    mailto: str,
+    sleep_s: float = 0.0,
+    work_citation_cache: dict | None = None,
 ) -> int:
+    """
+    Return number of citations received by work `wid` from works published in [y0, y1].
+
+    Since y0 and y1 are fixed during the run, the cache key is just `wid`.
+    """
+    if work_citation_cache is not None and wid in work_citation_cache:
+        return work_citation_cache[wid]
+
     params = {
         "filter": f"cites:{wid},publication_year:{y0}-{y1}",
         "per_page": 1,
@@ -130,78 +211,151 @@ def citation_count_for_work_in_year_range(
     }
     data = get_json_with_retry("works", params)
     time.sleep(sleep_s)
-    return int(data["meta"]["count"])
+    count = int(data["meta"]["count"])
 
-def citation_distribution_for_work_set(work_ids, y0: int, y1: int, mailto: str,
-                                       sleep_s: float = 0.0):
-    """Return list of per-work citation counts within [y0,y1] for a UNIQUE set of works."""
+    if work_citation_cache is not None:
+        work_citation_cache[wid] = count
+
+    return count
+
+def citation_distribution_for_work_set(
+    work_ids,
+    y0: int,
+    y1: int,
+    mailto: str,
+    sleep_s: float = 1,
+    work_citation_cache: dict | None = None,
+):
+    """Return list of per-work citation counts within [y0, y1] for a unique set of works."""
     dist = []
     for wid in work_ids:
-        dist.append(citation_count_for_work_in_year_range(wid, y0, y1, mailto=mailto, sleep_s=sleep_s))
+        dist.append(
+            citation_count_for_work_in_year_range(
+                wid,
+                y0,
+                y1,
+                mailto=mailto,
+                sleep_s=sleep_s,
+                work_citation_cache=work_citation_cache,
+            )
+        )
     return dist
 
-def build_author_df_and_unique_work_distributions(aids, Y: int, mailto: str,
-                                                  sleep_s: float = 0.0,
-                                                  per_page_works: int = 200):
+def build_author_df_and_unique_work_distributions(
+    aids,
+    y0: int,
+    y1: int,
+    mailto: str,
+    sleep_s: float = 1,
+    per_page_works: int = 200,
+    work_citation_cache: dict | None = None,
+):
     """
     Returns:
-      df: columns [authorID, count1, citations1, maxCitation1, works1, count2, citations2, maxCitation2, works2]
-      dist1: list of citation counts for UNIQUE works in period1 across ALL authors
-      dist2: list of citation counts for UNIQUE works in period2 across ALL authors
+      df: columns [authorID, count1, citations1, maxCitation1, works1]
+      dist1_unique: citation counts for UNIQUE works across all authors
+      work_citation_cache: local cache wid -> citation_count
     """
-    w1 = (Y - 5, Y - 1)
-    w2 = (Y, Y + 4)
+    if work_citation_cache is None:
+        work_citation_cache = {}
 
     rows = []
     all_works1 = set()
-    all_works2 = set()
     counter = 0
+
     for aid in aids:
-        # normalize AID if user passed URL
         aid_norm = aid.split("/")[-1].strip()
 
         try:
-          works1 = get_author_work_ids_in_year_range(aid_norm, w1[0], w1[1], mailto=mailto,
-                                                    per_page=per_page_works, sleep_s=sleep_s)
-          works2 = get_author_work_ids_in_year_range(aid_norm, w2[0], w2[1], mailto=mailto,
-                                                    per_page=per_page_works, sleep_s=sleep_s)
+            works1 = get_author_work_ids_in_year_range(
+                aid_norm,
+                y0,
+                y1,
+                mailto=mailto,
+                per_page=per_page_works,
+                sleep_s=sleep_s,
+            )
 
-          all_works1.update(works1)
-          all_works2.update(works2)
+            works1 = set(works1)  # just in case
+            all_works1.update(works1)
 
-          # Per-author aggregates (no coauthor overweighting issue here; it’s the author’s own set)
-          dist1_author = citation_distribution_for_work_set(works1, w1[0], w1[1], mailto=mailto, sleep_s=sleep_s) if works1 else []
-          dist2_author = citation_distribution_for_work_set(works2, w2[0], w2[1], mailto=mailto, sleep_s=sleep_s) if works2 else []
+            dist1_author = citation_distribution_for_work_set(
+                works1,
+                y0,
+                y1,
+                mailto=mailto,
+                sleep_s=sleep_s,
+                work_citation_cache=work_citation_cache,
+            ) if works1 else []
 
-          row = {
-              "authorID": aid_norm,
-              "count1": len(works1),
-              "citations1": int(sum(dist1_author)),
-              "maxCitation1": int(max(dist1_author)) if dist1_author else 0,
-              "works1": works1,
-              "count2": len(works2),
-              "citations2": int(sum(dist2_author)),
-              "maxCitation2": int(max(dist2_author)) if dist2_author else 0,
-              "works2": works2,
-          }
-          print(counter,row)
-          rows.append(row)
+            row = {
+                "authorID": aid_norm,
+                "count1": len(works1),
+                "citations1": int(sum(dist1_author)),
+                "maxCitation1": int(max(dist1_author)) if dist1_author else 0,
+            }
+            print(counter, row)
+            rows.append(row)
+
         except Exception as e:
             print(e)
-        counter+=1
+
+        counter += 1
 
     df = pd.DataFrame(
         rows,
-        columns=["authorID", "count1", "citations1", "maxCitation1", "works1",
-                 "count2", "citations2", "maxCitation2", "works2"]
+        columns=["authorID", "count1", "citations1", "maxCitation1"]
     )
 
-    # UNIQUE work distributions across the cohort (no overweighting of coauthored works)
-    uniq_works1 = sorted(all_works1)
-    uniq_works2 = sorted(all_works2)
+    # unique-work distribution across all authors
+    dist1_unique = [
+        citation_count_for_work_in_year_range(
+            wid,
+            y0,
+            y1,
+            mailto=mailto,
+            sleep_s=sleep_s,
+            work_citation_cache=work_citation_cache,
+        )
+        for wid in all_works1
+    ]
 
-    return df
+    return df, dist1_unique, work_citation_cache
 
+def ensure_rank_cols(df, cols):
+    """
+    Ensure normalized rank columns exist for each col in cols.
+    Best -> 0, worst -> 1. Adds <col>_rank if missing.
+    """
+    out = df.copy()
+    for c in cols:
+        rcol = f"{c}_rank"
+        if rcol in out.columns:
+            continue
+        r = out[c].rank(method="average", ascending=False)
+        denom = r.max() - 1
+        out[rcol] = 0.5 if denom == 0 else (r - 1) / denom
+    return out
+
+
+def build_score_from_ranks(df, rank_cols, weights=None, clip_eps=1e-9):
+    """
+    Convert rank columns (0 best .. 1 worst) into a score s in [0,1]:
+      goodness = 1 - rank
+      s = weighted average goodness
+    """
+    if weights is None:
+        weights = {c: 1.0 for c in rank_cols}
+    w = np.array([weights.get(c, 0.0) for c in rank_cols], dtype=float)
+    if np.all(w == 0):
+        raise ValueError("All weights are zero.")
+    w = w / w.sum()
+
+    G = np.vstack([(1.0 - df[c].to_numpy(dtype=float)) for c in rank_cols]).T  # shape (n,k)
+    s = (G * w).sum(axis=1)
+    # avoid exact zeros (helps when raising to gamma)
+    s = np.clip(s, clip_eps, 1.0)
+    return s
 
 def sanitizeIds(input_str, st, prefix, max_ids=200):
     """
@@ -319,119 +473,76 @@ def apply_floor_cap_proportionally(b, B, b_min=0.0, b_max=np.inf, max_iter=200, 
         b *= (B / s)
     return b
 
-def allocate_budget(df: pd.DataFrame, B: float, score_col: str,
-    alpha: float = 0.3,          # exploration budget share (α)
-    lambda_uniform: float = 0.8, # exploration mix (λ): λ*uniform + (1-λ)*score-proportional
-    gamma: float = 1.5,          # exploitation concentration (γ)
-    b_min: float = 0.0,          # optional floor (b_min)
-    b_max: float = np.inf,       # optional cap (b_max)
-    id_col: str = "authorID",
-    add_columns: bool = True
-) -> pd.DataFrame:
+def allocate_budget(
+    df,
+    B,
+    alpha=0.3,          # fraction for exploration (uniform/option value)
+    gamma=1.5,          # concentration on high-score for exploitation
+    lambda_uniform=0.8, # exploration mix: lambda*uniform + (1-lambda)*score
+    score_weights=None, # weights for rank cols used in score
+    use_rank_cols=("count1_rank","citations1_rank","maxCitation1_rank"),
+    b_floor=0.0,
+    b_cap=np.inf,
+    add_columns=True
+):
     """
-    Deterministic hybrid allocation (paper notation):
-      B_explore = α B
-      b_i^explore = B_explore * [ λ(1/N) + (1-λ) s_i / Σ s ]
-      B_exploit = (1-α) B
-      b_i^exploit = B_exploit * [ s_i^γ / Σ s^γ ]
-      b_i = b_i^explore + b_i^exploit
-    with optional bounds b_min <= b_i <= b_max enforced while preserving Σ b_i = B.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Must contain `score_col` and `id_col`.
-    B : float
-        Total budget.
-    score_col : str
-        Column name containing the score s_i (higher is better; not necessarily percentile).
-    alpha, lambda_uniform, gamma : floats
-        Policy hyperparameters (α, λ, γ).
-    b_min, b_max : floats
-        Optional floor/cap per researcher.
-    id_col : str
-        Identifier column (default "authorID").
-    add_columns : bool
-        If False, returns only [id_col, b_total].
-
-    Returns
-    -------
-    DataFrame
-        With columns: score_col, b_explore, b_exploit, b_total (and id_col).
+    Returns a new DataFrame with:
+      - score s
+      - b_explore, b_exploit, b_total
+      - (optionally) floors/caps applied to b_total
     """
-    if df is None or len(df) == 0:
-        raise ValueError("df is empty.")
-    if score_col not in df.columns:
-        raise ValueError(f"score_col='{score_col}' not found in df.")
-    if id_col not in df.columns:
-        raise ValueError(f"id_col='{id_col}' not found in df.")
-    if B <= 0:
-        raise ValueError("B must be > 0.")
     if not (0 <= alpha <= 1):
         raise ValueError("alpha must be in [0,1].")
     if not (0 <= lambda_uniform <= 1):
         raise ValueError("lambda_uniform must be in [0,1].")
     if gamma <= 0:
         raise ValueError("gamma must be > 0.")
-    if b_min < 0:
-        raise ValueError("b_min must be >= 0.")
-    if not (b_max > 0):
-        raise ValueError("b_max must be > 0 (or np.inf).")
-    if b_max < b_min:
-        raise ValueError("b_max must be >= b_min.")
 
     out = df.copy()
-
-    # Scores s_i (nonnegative)
-    s = out[score_col].to_numpy(dtype=float)
-    s = np.nan_to_num(s, nan=0.0, posinf=0.0, neginf=0.0)
-    s = np.clip(s, 0.0, None)
-
-    n = len(s)
+    n = len(out)
     if n == 0:
-        raise ValueError("df is empty after processing.")
+        raise ValueError("df is empty.")
 
-    # If all scores are zero, fall back to uniform (still well-defined)
-    if s.sum() <= 1e-15:
-        s_norm = np.ones(n) / n
-        s_gamma_norm = np.ones(n) / n
-    else:
-        s_norm = s / s.sum()
-        s_gamma = np.power(s, gamma)
-        if s_gamma.sum() <= 1e-15:
-            s_gamma_norm = np.ones(n) / n
-        else:
-            s_gamma_norm = s_gamma / s_gamma.sum()
+    # Ensure needed rank cols exist (if user gave raw cols only)
+    base_cols = [c.replace("_rank", "") for c in use_rank_cols]
+    out = ensure_rank_cols(out, base_cols)
 
-    # Exploration component
+    # Build score from rank cols
+    s = build_score_from_ranks(out, list(use_rank_cols), weights=score_weights)
+    out["score"] = s
+
+    # Exploration part
     B_explore = alpha * B
     uniform = np.ones(n) / n
-    p_explore = lambda_uniform * uniform + (1.0 - lambda_uniform) * s_norm
+    score_norm = s / s.sum()
+    p_explore = lambda_uniform * uniform + (1 - lambda_uniform) * score_norm
+    p_explore = p_explore / p_explore.sum()
     b_explore = B_explore * p_explore
 
-    # Exploitation component
-    B_exploit = (1.0 - alpha) * B
-    b_exploit = B_exploit * s_gamma_norm
+    # Exploitation part
+    B_exploit = (1 - alpha) * B
+    w_exploit = (s ** gamma)
+    w_exploit = w_exploit / w_exploit.sum()
+    b_exploit = B_exploit * w_exploit
 
-    # Total before bounds
     b_total = b_explore + b_exploit
 
-    # Optional floor/cap
-    if b_min > 0 or np.isfinite(b_max):
-        b_total_adj = apply_floor_cap_proportionally(b_total, B, b_min=b_min, b_max=b_max)
+    # Apply optional floor/cap
+    if b_floor > 0 or np.isfinite(b_cap):
+        b_total = apply_floor_cap_proportionally(b_total, B, b_min=b_floor, b_max=b_cap)
 
-        # After enforcing bounds, keep a best-effort decomposition by scaling components
-        scale = b_total_adj / (b_total + 1e-18)
+        # If we enforce caps/floors we lose the exact decomposition; recompute a best-effort split
+        # by scaling explore/exploit parts proportionally to match final totals:
+        scale = b_total / (b_explore + b_exploit + 1e-18)
         b_explore = b_explore * scale
         b_exploit = b_exploit * scale
-        b_total = b_total_adj
 
     out["b_explore"] = b_explore
     out["b_exploit"] = b_exploit
     out["b_total"] = b_total
 
     if not add_columns:
-        return out[[id_col, "b_total"]].copy()
+        return out[["authorID", "b_total"]].copy()
 
     return out
 

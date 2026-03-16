@@ -68,7 +68,9 @@ st.markdown(
 # Input options and params
 email = st.text_input("User e-mail:", help="OpenAlex user email")
 
-year = st.number_input("Year:", help="Year to search in OpenAlex", value=2020)
+year_range = st.slider("Year range:", min_value=2010, max_value=2026, value=(2021, 2025), help="Select the publication year range to analyze")
+
+y0, y1 = year_range
 options = ['Institute', 'Author']
 searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
 
@@ -88,6 +90,7 @@ elif searchBy == options[1]:
 # Submit to retrieve info
 if inputIds:
     minPapers = st.number_input("Minimum number of papers per author:", value=10, min_value=0)
+    minCitations = st.number_input("Minimum number of citations per author:", value=0, min_value=0)
     if st.button("Perform search", type='primary'):
         with st.spinner("OpenAlex search..."):
             try:
@@ -95,41 +98,89 @@ if inputIds:
                     inst_ids = sanitizeIds(inputIds, st, prefix='i')
                     #check id validity
                     inst_ids = checkValid(inst_ids, 'i', st)
-                    for inst in inst_ids:
+                    progress_bar = st.progress(0)
+                    total_insts = len(inst_ids)
+                    last_warning = None
+
+                    for idx, inst in enumerate(inst_ids):
                         aids = None
                         for attempt in range(5):
-                            aids, msg = authors_working_at_institution_in_year(inst, year, email)
+                            aids, msg = authors_working_at_institution_in_year(inst_id=inst, year=y1, mailto=email, min_total_works=minPapers, min_total_citations=minCitations)
+                            filtered_aids = []
                             if not aids:
-                                st.warning(f"{msg}. Retrying...")
+                                if last_warning:
+                                    last_warning.empty()
+                                last_warning = st.warning(f"{msg}. Retrying...")
                                 time.sleep(1 * (2 ** attempt))
                                 continue
+                            for aid in aids:
+                                try:
+                                    works = count_author_works_in_period(aid, email, y0, y1)
+                                    if works >= minPapers:
+                                        filtered_aids.append(aid)
+                                except Exception:
+                                    continue
+
+                            aids = filtered_aids
                             break
                         if not aids:
-                            st.warning(f"Skipping institution {inst} due to repeated errors.")
+                            last_warning = st.warning(f"Skipping institution {inst} due to repeated errors.")
                             continue
 
-                        df = build_author_df_and_unique_work_distributions(
-                            aids, Y=year, mailto=email, sleep_s=0.05
+                        df, _, _ = build_author_df_and_unique_work_distributions(
+                            aids,
+                            y0=y0,
+                            y1=y1,
+                            mailto=email,
+                            sleep_s=0.05
                         )
-                        df = df[df["count1"] >= minPapers].reset_index(drop=True)
                         dfAll[inst] = df
+                        progress_bar.progress((idx + 1) / total_insts)
                 elif searchBy == options[1]:
+                    last_warning = None
                     aids = sanitizeIds(inputIds, st, prefix='A')
                     # check id validity
                     aids = checkValid(aids, 'A', st)
+
+                    filtered_aids = []
+                    progress_bar = st.progress(0)
+                    total_aids = len(aids)
+
+                    for idx, aid in enumerate(aids):
+                        works = count_author_works_in_period_safe(aid, email, y0, y1)
+                        if works is None:
+                            if last_warning:
+                                last_warning.empty()
+                            last_warning = st.warning(f"Skipping {aid} due to repeated request failures")
+                        elif works >= minPapers:
+                            filtered_aids.append(aid)
+                        progress_bar.progress((idx + 1) / total_aids)
+
+                    if not filtered_aids:
+                        last_warning = st.warning(f"No authors have at least {minPapers} papers in the selected period.")
+                    aids = filtered_aids
+
                     df = None
                     for attempt in range(5):
-                        df = build_author_df_and_unique_work_distributions(
-                            aids, Y=year, mailto=email, sleep_s=0.05
+                        df, _, _ = build_author_df_and_unique_work_distributions(
+                            aids,
+                            y0=y0,
+                            y1=y1,
+                            mailto=email,
+                            sleep_s=0.05
                         )
                         if df is None or df.empty:
-                            st.warning("Rate limit hit while retrieving author data. Retrying...")
+                            if last_warning:
+                                last_warning.empty()
+                            last_warning = st.warning("Rate limit hit while retrieving author data. Retrying...")
                             time.sleep(1 * (2 ** attempt))
                             continue
                         break
 
                     if df is None or df.empty:
-                        st.warning("Author data incomplete due to repeated errors.")
+                        if last_warning:
+                            last_warning.empty()
+                        last_warning = st.warning("Author data incomplete due to repeated errors.")
                     else:
                         df = df[df["count1"] >= minPapers].reset_index(drop=True)
                         dfAll["inputAIDs"] = df
@@ -146,29 +197,24 @@ if dfAll:
     parts = []
 
     for inst_id, df in dfAll.items():
-        d = df.loc[df["count1"] > 1].copy()
-
+        d = df.copy()
         d["citationAvg1"] = d["citations1"] / d["count1"]
-        d["citationAvg2"] = d["citations2"] / d["count2"]
+        cols = ["count1", "citationAvg1", "maxCitation1"]
 
-        for suffix in ["1","2"]:
-          for c in cols:
-              col = f"{c}{suffix}"
-              d[f"{col}Perc"] = d[col].rank(pct=True)
-        d["avgPerc1"]=(d["citationAvg1Perc"]+d["count1Perc"]+d["maxCitation1Perc"])/3
-        d["avgPerc2"]=(d["citationAvg2Perc"]+d["count2Perc"]+d["maxCitation2Perc"])/3
+        for c in cols:
+            d[f"{c}Perc"] = d[c].rank(pct=True)
 
-        #filter if only specific authors
-        if searchBy == options[1]:
-            selected_aids = [x.strip() for x in inputIds.split(",") if x.strip()]
-            d = d[d["authorID"].isin(selected_aids)]
-
+        d["avgPerc1"] = (d["count1Perc"] + d["citationAvg1Perc"] + d["maxCitation1Perc"]) / 3
 
         dfAll[inst_id] = d
 
-        # collect only percentile columns
-        perc_cols = [f"{c}{suffix}Perc" for c in cols for suffix in ["1", "2"]]
-        out = d.loc[:, ["authorID","avgPerc1","avgPerc2"]+perc_cols].copy()
+        out = d.loc[:, [
+            "authorID",
+            "avgPerc1",
+            "count1Perc",
+            "citationAvg1Perc",
+            "maxCitation1Perc"
+        ]]
 
         parts.append(out)
         dfClean[inst_id] = d
@@ -203,7 +249,7 @@ if dfAll:
     gamma = None
 
     st.header('Budget allocation')
-    B = st.number_input("Total budget:", help="", value=1)
+    B = st.number_input("Total budget:", help="", value=1000000.0)
     col1, col2, col3 = st.columns(3)
     with col1:
         alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00)
@@ -212,20 +258,47 @@ if dfAll:
     with col3:
         gamma = st.number_input("Gamma:", value=1.5)
 
+    with col1:
+        count1 = st.number_input("Count weight:", value=0.6, min_value=0.00, max_value=1.00)
+    with col2:
+        citations1 = st.number_input("Citations weight:", value=0.25, min_value=0.00, max_value=1.00,  format="%.2f")
+    with col3:
+        maxCit1 = st.number_input("Maximum citations weight:", value=0.15, min_value=0.00, max_value=1.00,  format="%.2f")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        b_floor = st.number_input("Minimum allocation per author (b_floor):", value=0.0, min_value=0.0)
+    with col2:
+        b_cap = st.number_input("Maximum allocation per author (b_cap):", value=B, min_value=0.0)
+
+    if b_floor > b_cap:
+        st.warning("Minimum allocation (b_floor) cannot exceed maximum (b_cap). Resetting to defaults.")
+        b_floor = 0.0
+        b_cap = B
+
     if st.button("Submit", type='primary'):
+        df_for_budget = dfClean[inst_id].copy()
+
         alloc = allocate_budget(
-                df=df,
-                B=B,
-                score_col='avgPerc1',
-                alpha=alpha,
-                lambda_uniform=lambda_val,
-                gamma=gamma,
-                id_col='authorID',
-                add_columns=True
-            )
+            df=df_for_budget,
+            B=B,
+            alpha=alpha,
+            gamma=gamma,
+            lambda_uniform=lambda_val,
+            score_weights={
+                "count1_rank": count1,
+                "citations1_rank": citations1,
+                "maxCitation1_rank": maxCit1
+            },
+            b_floor=b_floor,
+            b_cap=b_cap
+        )
+
+        alloc_sorted = alloc.sort_values("b_total", ascending=False)
+        alloc_sorted = alloc_sorted[["authorID", "score", "b_explore", "b_exploit", "b_total"]]
 
         st.dataframe(
-            alloc,
+            alloc_sorted,
             column_config={
                 "authorID": st.column_config.LinkColumn(
                     "authorID",
@@ -233,7 +306,7 @@ if dfAll:
                 )
             }
         )
-        st.caption(f"**Shape:** {alloc.shape}")
+        st.caption(f"**Shape:** {alloc_sorted.shape}")
 
 
 st.markdown("""
