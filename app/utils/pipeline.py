@@ -375,7 +375,7 @@ def sanitizeIds(input_str, st, prefix, max_ids=200):
     pattern = f"^{prefix}\\d+$"  # e.g., '^A\d+$' or '^i\d+$'
 
     for id_ in ids:
-        if re.match(pattern, id_):
+        if re.match(pattern, id_, re.IGNORECASE):
             valid_ids.append(id_)
         else:
             st.warning(f"Invalid ID skipped: {id_}")
@@ -546,15 +546,3 @@ def allocate_budget(
 
     return out
 
-
-def checkValid(ids, letter, st):
-    letter = letter.lower()
-    cleaned_ids = [x.strip() for x in ids]
-
-    valid_ids = [x for x in cleaned_ids if x.lower().startswith(letter)]
-    invalid_ids = [x for x in cleaned_ids if not x.lower().startswith(letter)]
-
-    if invalid_ids:
-        st.warning(f"Removed invalid IDs (must start with '{letter.upper()}'): {', '.join(invalid_ids)}")
-
-    return valid_ids

@@ -96,8 +96,7 @@ if inputIds:
             try:
                 if searchBy == options[0]:
                     inst_ids = sanitizeIds(inputIds, st, prefix='i')
-                    #check id validity
-                    inst_ids = checkValid(inst_ids, 'i', st)
+
                     progress_bar = st.progress(0)
                     total_insts = len(inst_ids)
                     last_warning = None
@@ -139,8 +138,6 @@ if inputIds:
                 elif searchBy == options[1]:
                     last_warning = None
                     aids = sanitizeIds(inputIds, st, prefix='A')
-                    # check id validity
-                    aids = checkValid(aids, 'A', st)
 
                     filtered_aids = []
                     progress_bar = st.progress(0)
@@ -297,6 +294,9 @@ if dfAll:
         alloc_sorted = alloc.sort_values("b_total", ascending=False)
         alloc_sorted = alloc_sorted[["authorID", "score", "b_explore", "b_exploit", "b_total"]]
 
+        alloc_sorted["authorID"] = alloc_sorted["authorID"].apply(
+            lambda x: f"https://openalex.org/{x}"
+        )
         st.dataframe(
             alloc_sorted,
             column_config={
