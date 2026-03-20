@@ -90,16 +90,23 @@ elif searchBy == options[1]:
 # Submit to retrieve info
 if inputIds:
     minPapers = st.number_input("Minimum number of papers per author:", value=10, min_value=0)
-    minCitations = st.number_input("Minimum number of citations per author:", value=0, min_value=0)
+    minCitations = st.number_input("Minimum number of citations per author:", value=100, min_value=0)
     if st.button("Perform search", type='primary'):
         with st.spinner("OpenAlex search..."):
             try:
+                phase1_weight = 0.8
+                phase2_weight = 0.2
+
                 if searchBy == options[0]:
                     inst_ids = sanitizeIds(inputIds, st, prefix='i')
 
                     progress_bar = st.progress(0)
-                    total_insts = len(inst_ids)
                     last_warning = None
+
+                    aids_processed = 0
+                    max_aids_seen = 1
+                    insts_processed = 0
+                    total_insts = len(inst_ids)
 
                     for idx, inst in enumerate(inst_ids):
                         aids = None
@@ -114,7 +121,11 @@ if inputIds:
                                 continue
                             for aid in aids:
                                 try:
-                                    works = count_author_works_in_period(aid, email, y0, y1)
+                                    works = count_author_works_in_period_safe(aid, email, y0, y1)
+                                    if works is None:
+                                        if last_warning:
+                                            last_warning.empty()
+                                        last_warning = st.warning(f"Skipping {aid} due to repeated request failures")
                                     if works >= minPapers:
                                         filtered_aids.append(aid)
                                 except Exception:
@@ -126,6 +137,12 @@ if inputIds:
                             last_warning = st.warning(f"Skipping institution {inst} due to repeated errors.")
                             continue
 
+                        aids_processed += len(aids)
+                        max_aids_seen = max(max_aids_seen, aids_processed)
+
+                        phase1_progress = phase1_weight * (aids_processed / max_aids_seen)
+                        progress_bar.progress(min(phase1_progress, phase1_weight))
+
                         df, _, _ = build_author_df_and_unique_work_distributions(
                             aids,
                             y0=y0,
@@ -134,7 +151,11 @@ if inputIds:
                             sleep_s=0.05
                         )
                         dfAll[inst] = df
-                        progress_bar.progress((idx + 1) / total_insts)
+                        insts_processed += 1
+                        phase2_progress = phase2_weight * (insts_processed / total_insts)
+                        progress_bar.progress(phase1_weight + phase2_progress)
+
+                    progress_bar.progress(1.0)
                 elif searchBy == options[1]:
                     last_warning = None
                     aids = sanitizeIds(inputIds, st, prefix='A')
@@ -151,7 +172,7 @@ if inputIds:
                             last_warning = st.warning(f"Skipping {aid} due to repeated request failures")
                         elif works >= minPapers:
                             filtered_aids.append(aid)
-                        progress_bar.progress((idx + 1) / total_aids)
+                        progress_bar.progress((idx + 1) / total_aids * phase1_weight)
 
                     if not filtered_aids:
                         last_warning = st.warning(f"No authors have at least {minPapers} papers in the selected period.")
@@ -166,6 +187,9 @@ if inputIds:
                             mailto=email,
                             sleep_s=0.05
                         )
+                        progress_bar.progress(
+                            phase1_weight + (attempt + 1) / 5 * phase2_weight
+                        )
                         if df is None or df.empty:
                             if last_warning:
                                 last_warning.empty()
@@ -179,9 +203,9 @@ if inputIds:
                             last_warning.empty()
                         last_warning = st.warning("Author data incomplete due to repeated errors.")
                     else:
-                        df = df[df["count1"] >= minPapers].reset_index(drop=True)
                         dfAll["inputAIDs"] = df
                 st.session_state.dfAll = dfAll
+                progress_bar.progress(1.0)
             except Exception as e:
                 st.error(f"Unexpected error during OpenAlex search: {e}")
                 st.stop()
@@ -194,6 +218,11 @@ if dfAll:
     parts = []
 
     for inst_id, df in dfAll.items():
+        df = df[
+            (df["count1"] >= minPapers) &
+            (df["citations1"] >= minCitations)
+            ].reset_index(drop=True)
+
         d = df.copy()
         d["citationAvg1"] = d["citations1"] / d["count1"]
         cols = ["count1", "citationAvg1", "maxCitation1"]
@@ -217,6 +246,10 @@ if dfAll:
         dfClean[inst_id] = d
 
     df = pd.concat(parts, axis=0, ignore_index=True)
+    df = df[
+        (df["count1"] >= minPapers) &
+        (df["citations1"] >= minCitations)
+        ].reset_index(drop=True)
     df = (
         df
         .sort_values(by="avgPerc1", ascending=False)
@@ -227,6 +260,7 @@ if dfAll:
     df["authorID"] = df["authorID"].apply(
         lambda x: f"https://openalex.org/{x}"
     )
+    df = df.round(2)
     st.dataframe(
         df,
         column_config={
@@ -246,35 +280,44 @@ if dfAll:
     gamma = None
 
     st.header('Budget allocation')
-    B = st.number_input("Total budget:", help="", value=1000000.0)
+    B = st.number_input("Total budget:", help="Total amount of money to distribute.", value=1000000.0)
     col1, col2, col3 = st.columns(3)
     with col1:
-        alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00)
+        alpha = st.number_input("Alpha:", value=0.3, min_value=0.00, max_value=1.00, help="Exploration vs exploitation trade-off.\n\n"
+             "• 0 → all budget goes to top performers (exploitation)\n"
+             "• 1 → budget is spread more evenly (exploration)")
     with col2:
-        lambda_val = st.number_input("Lambda:", value=0.8, min_value=0.00, max_value=1.00)
+        lambda_val = st.number_input("Lambda:", value=0.8, min_value=0.00, max_value=1.00, help="Controls how exploration is distributed.\n\n"
+             "• 1 → fully uniform (everyone gets similar share)\n"
+             "• 0 → based on performance score")
     with col3:
-        gamma = st.number_input("Gamma:", value=1.5)
+        gamma = st.number_input("Gamma:", value=1.5, help="Controls how strongly top performers are favored.\n\n"
+             "• 1 → proportional to score\n"
+             "• >1 → increasingly favors top authors\n"
+             "• <1 → more balanced distribution")
 
     with col1:
-        count1 = st.number_input("Count weight:", value=0.6, min_value=0.00, max_value=1.00)
+        count1 = st.number_input("Count weight:", value=0.6, min_value=0.00, max_value=1.00, help="Importance of number of publications in the score.")
     with col2:
-        citations1 = st.number_input("Citations weight:", value=0.25, min_value=0.00, max_value=1.00,  format="%.2f")
+        citations1 = st.number_input("Citations weight:", value=0.25, min_value=0.00, max_value=1.00, help="Importance of average citations per paper.")
     with col3:
-        maxCit1 = st.number_input("Maximum citations weight:", value=0.15, min_value=0.00, max_value=1.00,  format="%.2f")
+        maxCit1 = st.number_input("Maximum citations weight:", value=0.15, min_value=0.00, max_value=1.00,  help="Importance of the most cited paper (impact peak).")
 
     col1, col2 = st.columns(2)
     with col1:
-        b_floor = st.number_input("Minimum allocation per author (b_floor):", value=0.0, min_value=0.0)
+        b_floor = st.number_input("Minimum allocation per author (b_floor):", value=0.0, min_value=0.0, help="Minimum guaranteed funding per author.\n\n"
+             "Ensures everyone receives at least this amount.")
     with col2:
-        b_cap = st.number_input("Maximum allocation per author (b_cap):", value=B, min_value=0.0)
+        b_cap = st.number_input("Maximum allocation per author (b_cap):", value=B, min_value=0.0, help="Maximum funding per author.\n\n"
+             "Prevents a single author from receiving too much.")
 
     if b_floor > b_cap:
         st.warning("Minimum allocation (b_floor) cannot exceed maximum (b_cap). Resetting to defaults.")
         b_floor = 0.0
         b_cap = B
 
-    if st.button("Submit", type='primary'):
-        df_for_budget = dfClean[inst_id].copy()
+    if st.button("Run budget allocation", type='primary'):
+        df_for_budget = dfClean.copy()
 
         alloc = allocate_budget(
             df=df_for_budget,
@@ -297,6 +340,7 @@ if dfAll:
         alloc_sorted["authorID"] = alloc_sorted["authorID"].apply(
             lambda x: f"https://openalex.org/{x}"
         )
+        alloc_sorted = alloc_sorted.round(2)
         st.dataframe(
             alloc_sorted,
             column_config={
