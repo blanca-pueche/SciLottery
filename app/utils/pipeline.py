@@ -32,6 +32,8 @@ def authors_working_at_institution_in_year(
     cursor = "*"
 
     prefilter = f"affiliations.institution.id:{inst_id}"
+    max_retries = 5
+    retry_count = 0
 
     while cursor:
         params = {
@@ -45,7 +47,6 @@ def authors_working_at_institution_in_year(
             r = requests.get(f"{BASE_URL}/authors", params=params, timeout=60)
             r.raise_for_status()
             data = r.json()
-
             for a in data.get("results", []):
 
                 # (0) filters on works and citations
@@ -83,17 +84,29 @@ def authors_working_at_institution_in_year(
 
             cursor = data.get("meta", {}).get("next_cursor")
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                msg = (f"Rate limit hit for institution {inst_id}. Returning partial results ({len(aids)} authors).")
-                break
+            status = e.response.status_code
+            if status == 429:
+                wait_time = int(e.response.headers.get("Retry-After", 2))
+                retry_count += 1
+                msg = (
+                    f"Rate limit hit for institution {inst_id}. "
+                    f"Retry {retry_count}/{max_retries} after {wait_time}s..."
+                )
+                time.sleep(wait_time)
+                if retry_count >= max_retries:
+                    msg = (
+                        f"Max retries reached for {inst_id}. "
+                        f"Returning partial results ({len(aids)} authors)."
+                    )
+                    break
+                continue
             else:
-                msg = (f"HTTP error {e.response.status_code} for institution {inst_id}. Continuing anyway.")
+                msg = f"HTTP error {status} for institution {inst_id}. Skipping page."
                 break
-        except Exception as e:
-            msg = (f"Error retrieving authors for institution {inst_id}: {e}. Continuing anyway.")
-            break
 
-        return aids, msg
+        except Exception as e:
+            msg = f"Error retrieving authors for institution {inst_id}: {e}. Continuing anyway."
+            break
 
     return aids, msg
 
