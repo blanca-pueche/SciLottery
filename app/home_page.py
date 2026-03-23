@@ -246,10 +246,6 @@ if dfAll:
         dfClean[inst_id] = d
 
     df = pd.concat(parts, axis=0, ignore_index=True)
-    df = df[
-        (df["count1"] >= minPapers) &
-        (df["citations1"] >= minCitations)
-        ].reset_index(drop=True)
     df = (
         df
         .sort_values(by="avgPerc1", ascending=False)
@@ -317,10 +313,10 @@ if dfAll:
         b_cap = B
 
     if st.button("Run budget allocation", type='primary'):
-        df_for_budget = dfClean.copy()
+        df_raw = pd.concat(dfClean.values(), ignore_index=True)
 
         alloc = allocate_budget(
-            df=df_for_budget,
+            df=df_raw,
             B=B,
             alpha=alpha,
             gamma=gamma,
@@ -334,7 +330,7 @@ if dfAll:
             b_cap=b_cap
         )
 
-        alloc_sorted = alloc.sort_values("b_total", ascending=False)
+        alloc_sorted = alloc.sort_values("b_total", ascending=False).reset_index(drop=True)
         alloc_sorted = alloc_sorted[["authorID", "score", "b_explore", "b_exploit", "b_total"]]
 
         alloc_sorted["authorID"] = alloc_sorted["authorID"].apply(
