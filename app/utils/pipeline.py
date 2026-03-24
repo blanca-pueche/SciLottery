@@ -44,9 +44,10 @@ def authors_working_at_institution_in_year(
             "mailto": mailto,
         }
         try:
-            r = requests.get(f"{BASE_URL}/authors", params=params, timeout=60)
-            r.raise_for_status()
-            data = r.json()
+            #r = requests.get(f"{BASE_URL}/authors", params=params, timeout=60)
+            #r.raise_for_status()
+            #data = r.json()
+            data = get_json_with_retry("authors", params)
             for a in data.get("results", []):
 
                 # (0) filters on works and citations
@@ -105,7 +106,7 @@ def authors_working_at_institution_in_year(
                 break
 
         except Exception as e:
-            msg = f"Error retrieving authors for institution {inst_id}: {e}. Continuing anyway."
+            msg = f"Error retrieving authors for institution {inst_id}: {e}."
             break
 
     return aids, msg
@@ -130,29 +131,47 @@ def count_author_works_in_period(author_id: str, mailto: str,
         "mailto": mailto,
     }
 
-    r = requests.get(f"{BASE_URL}/works", params=params, timeout=60)
-    r.raise_for_status()
-    data = r.json()
-    return data.get("meta", {}).get("count", 0)
+    #r = requests.get(f"{BASE_URL}/works", params=params, timeout=60)
+    #r.raise_for_status()
+    #data = r.json()
+    try:
+        data = get_json_with_retry("works", params)
+        msg = ''
+        return data.get("meta", {}).get("count", 0), msg
+
+    except RuntimeError as e:
+        msg = (f"Skipping {author_id}: {e}")
+        return None, msg
+
+    except requests.RequestException as e:
+        msg = (f"Request failed for {author_id}: {e}")
+        return None, msg
 
 def count_author_works_in_period_safe(author_id: str, mailto: str,
                                       start_year: int, end_year: int,
                                       max_retries: int = 3) -> int | None:
     """
-    Safe wrapper around count_author_works_in_period:
-    retries a few times if request fails. Returns None if still failing.
+    Safe wrapper with fast-fail retries.
+    NO long waits, NO exponential backoff explosions.
     """
+
     for attempt in range(max_retries):
         try:
             return count_author_works_in_period(author_id, mailto, start_year, end_year)
+
         except requests.RequestException as e:
-            # Rate limit or network error
             print(f"Attempt {attempt+1} failed for {author_id}: {e}")
-            time.sleep(1 * (2 ** attempt))  # exponential backoff
+
+            if attempt >= max_retries - 1:
+                return None
+
+            time.sleep(2)
+
     return None
 
-def get_json_with_retry(endpoint, params, max_retries=5, timeout=60):
+def get_json_with_retry(endpoint, params, max_retries=3, timeout=60):
     delay = 1.0
+
     for attempt in range(max_retries):
         try:
             r = requests.get(
@@ -160,19 +179,28 @@ def get_json_with_retry(endpoint, params, max_retries=5, timeout=60):
                 params=params,
                 timeout=timeout
             )
+            if r.status_code == 429:
+                retry_after = int(r.headers.get("Retry-After", 2))
+                # 🚨 Ignore huge waits (like 14h)
+                if retry_after > 60:
+                    raise RuntimeError(
+                        f"🚨 Rate limit too high ({retry_after}s ~ {retry_after/3600:.2f}.h). "
+                    )
+
+                time.sleep(min(retry_after, 5))
+
+                continue  # retry
+
             r.raise_for_status()
             return r.json()
 
-        except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response is not None else None
-            # Retry only on transient server errors
-            if status in (502, 503, 504):
-                if attempt == max_retries - 1:
-                    raise
-                time.sleep(delay)
-                delay *= 2
-            else:
+        except requests.exceptions.RequestException as e:
+            if attempt == max_retries - 1:
                 raise
+            time.sleep(delay)
+            delay *= 2
+
+    raise RuntimeError("Max retries exceeded")
 
 def get_author_work_ids_in_year_range(aid: str, y0: int, y1: int, mailto: str, per_page: int = 200, sleep_s: float = 0.05):
     """Return list of work IDs (W...) for works by author aid with publication_year in [y0, y1]."""

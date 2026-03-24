@@ -8,9 +8,14 @@ import streamlit as st
 
 if "dfAll" not in st.session_state:
     st.session_state.dfAll = None
+if "show_performance" not in st.session_state:
+    st.session_state.show_performance = False
+if "search_mode" not in st.session_state:
+    st.session_state.search_mode = None
+
 st.set_page_config(
-    page_title="OpenAlex Performance Predictor CNB",
-    page_icon='📈'
+    page_title="SciLottery",
+    page_icon='🎲'
 )
 
 st.markdown("""
@@ -57,13 +62,16 @@ h3 {font-size: 19px !important; margin-bottom: 0.2rem;}
 st.logo("assets/bcu_logo.png", size="large")
 
 st.markdown(
-    "<h1 style='text-align:left; margin-bottom:0;'>OpenAlex Performance Predictor</h1>",
+    "<h1 style='text-align:left; margin-bottom:0;'>SciLottery</h1>",
     unsafe_allow_html=True
 )
 st.markdown(
-    "<p style='text-align:left; color:gray; margin-top:0;'>TODO write description</p>",
+    "<p style='text-align:left; color:gray; margin-top:0;'>Prediction of researcher performance from OpenAlex bibliometric data under uncertainty.</p>",
     unsafe_allow_html=True
 )
+
+minPapers = 0
+minCitations = 0
 
 # Input options and params
 email = st.text_input("User e-mail:", help="OpenAlex user email")
@@ -73,6 +81,10 @@ year_range = st.slider("Year range:", min_value=2010, max_value=2026, value=(202
 y0, y1 = year_range
 options = ['Institute', 'Author']
 searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
+if searchBy != st.session_state.search_mode:
+    st.session_state.search_mode = searchBy
+    st.session_state.dfAll = None
+    st.session_state.show_performance = False
 
 if not email and searchBy:
     st.warning("Email must be entered to continue")
@@ -92,6 +104,7 @@ if inputIds:
     minPapers = st.number_input("Minimum number of papers per author:", value=10, min_value=0)
     minCitations = st.number_input("Minimum number of citations per author:", value=100, min_value=0)
     if st.button("Perform search", type='primary'):
+        st.session_state.show_performance = True
         with st.spinner("OpenAlex search..."):
             try:
                 phase1_weight = 0.8
@@ -110,15 +123,24 @@ if inputIds:
 
                     for idx, inst in enumerate(inst_ids):
                         aids = None
-                        for attempt in range(5):
+                        for attempt in range(3):
                             aids, msg = authors_working_at_institution_in_year(inst_id=inst, year=y1, mailto=email, min_total_works=minPapers, min_total_citations=minCitations)
                             filtered_aids = []
                             if not aids:
-                                if last_warning:
-                                    last_warning.empty()
-                                last_warning = st.warning(f"{msg}. Retrying...")
-                                time.sleep(1 * (2 ** attempt))
-                                continue
+                                if attempt < 2:
+                                    if last_warning:
+                                        last_warning.empty()
+
+                                    last_warning = st.warning(f"{msg}. .. Retrying...")
+                                    time.sleep(1 * (2 ** attempt))
+                                    continue
+                                else:
+                                    last_warning = st.warning(
+                                        f"Skipping institution {inst} due to repeated errors."
+                                    )
+                                    if last_warning:
+                                        last_warning.empty()
+                                    break
                             for aid in aids:
                                 try:
                                     works = count_author_works_in_period_safe(aid, email, y0, y1)
@@ -134,7 +156,7 @@ if inputIds:
                             aids = filtered_aids
                             break
                         if not aids:
-                            last_warning = st.warning(f"Skipping institution {inst} due to repeated errors.")
+                            st.warning(f"Skipping institution {inst} due to repeated errors.")
                             continue
 
                         aids_processed += len(aids)
@@ -142,19 +164,34 @@ if inputIds:
 
                         phase1_progress = phase1_weight * (aids_processed / max_aids_seen)
                         progress_bar.progress(min(phase1_progress, phase1_weight))
-
-                        df, _, _ = build_author_df_and_unique_work_distributions(
-                            aids,
-                            y0=y0,
-                            y1=y1,
-                            mailto=email,
-                            sleep_s=0.05
-                        )
-                        dfAll[inst] = df
+                        for attempt in range(3):
+                            df, _, _ = build_author_df_and_unique_work_distributions(
+                                aids,
+                                y0=y0,
+                                y1=y1,
+                                mailto=email,
+                                sleep_s=0.05
+                            )
+                            if df is not None and not df.empty:
+                                break
+                            if last_warning:
+                                last_warning.empty()
+                            if attempt < 2:
+                                last_warning = st.warning(
+                                    "Rate limit hit while retrieving author data. Retrying..."
+                                )
+                                time.sleep(1 * (2 ** attempt))
+                        if df is None or df.empty:
+                            if last_warning:
+                                last_warning.empty()
+                            last_warning = st.warning("Author data incomplete due to repeated errors.")
+                        else:
+                            dfAll[inst] = df
                         insts_processed += 1
                         phase2_progress = phase2_weight * (insts_processed / total_insts)
                         progress_bar.progress(phase1_weight + phase2_progress)
-
+                    if not dfAll:
+                        st.warning("Institute data incomplete due to repeated errors.")
                     progress_bar.progress(1.0)
                 elif searchBy == options[1]:
                     last_warning = None
@@ -165,11 +202,12 @@ if inputIds:
                     total_aids = len(aids)
 
                     for idx, aid in enumerate(aids):
-                        works = count_author_works_in_period_safe(aid, email, y0, y1)
+                        works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
                         if works is None:
                             if last_warning:
                                 last_warning.empty()
-                            last_warning = st.warning(f"Skipping {aid} due to repeated request failures")
+                            st.warning(f"{msg}. Retrying...")
+                            st.warning(f"Skipping {aid} due to repeated request failures")
                         elif works >= minPapers:
                             filtered_aids.append(aid)
                         progress_bar.progress((idx + 1) / total_aids * phase1_weight)
@@ -179,7 +217,7 @@ if inputIds:
                     aids = filtered_aids
 
                     df = None
-                    for attempt in range(5):
+                    for attempt in range(3):
                         df, _, _ = build_author_df_and_unique_work_distributions(
                             aids,
                             y0=y0,
@@ -190,14 +228,19 @@ if inputIds:
                         progress_bar.progress(
                             phase1_weight + (attempt + 1) / 5 * phase2_weight
                         )
-                        if df is None or df.empty:
-                            if last_warning:
-                                last_warning.empty()
-                            last_warning = st.warning("Rate limit hit while retrieving author data. Retrying...")
+                        if df is not None and not df.empty:
+                            break
+                        if last_warning:
+                            last_warning.empty()
+                        if attempt < 2:
+                            last_warning = st.warning(
+                                "Rate limit hit while retrieving author data. Retrying..."
+                            )
                             time.sleep(1 * (2 ** attempt))
-                            continue
-                        break
-
+                        else:
+                            last_warning = st.warning(
+                                "Author data incomplete due to repeated errors."
+                            )
                     if df is None or df.empty:
                         if last_warning:
                             last_warning.empty()
@@ -211,7 +254,7 @@ if inputIds:
                 st.stop()
 
 dfAll = st.session_state.dfAll
-if dfAll:
+if dfAll and st.session_state.show_performance:
     # Add citations columns
     cols = ["count", "citationAvg", "maxCitation"]
     dfClean = {}
