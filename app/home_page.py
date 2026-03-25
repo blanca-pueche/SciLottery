@@ -143,11 +143,12 @@ if inputIds:
                                     break
                             for aid in aids:
                                 try:
-                                    works = count_author_works_in_period_safe(aid, email, y0, y1)
+                                    works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
                                     if works is None:
                                         if last_warning:
                                             last_warning.empty()
-                                        last_warning = st.warning(f"Skipping {aid} due to repeated request failures")
+                                        st.warning(f"{msg}. Retrying...")
+                                        st.warning(f"Skipping {aid} due to repeated request failures")
                                     if works >= minPapers:
                                         filtered_aids.append(aid)
                                 except Exception:
@@ -165,22 +166,25 @@ if inputIds:
                         phase1_progress = phase1_weight * (aids_processed / max_aids_seen)
                         progress_bar.progress(min(phase1_progress, phase1_weight))
                         for attempt in range(3):
-                            df, _, _ = build_author_df_and_unique_work_distributions(
-                                aids,
-                                y0=y0,
-                                y1=y1,
-                                mailto=email,
-                                sleep_s=0.05
-                            )
-                            if df is not None and not df.empty:
-                                break
-                            if last_warning:
-                                last_warning.empty()
-                            if attempt < 2:
-                                last_warning = st.warning(
-                                    "Rate limit hit while retrieving author data. Retrying..."
+                            try:
+                                df, _, _ = build_author_df_and_unique_work_distributions(
+                                    aids,
+                                    y0=y0,
+                                    y1=y1,
+                                    mailto=email,
+                                    sleep_s=0.05
                                 )
-                                time.sleep(1 * (2 ** attempt))
+                                if df is not None and not df.empty:
+                                    break
+                                if last_warning:
+                                    last_warning.empty()
+                                if attempt < 2:
+                                    last_warning = st.warning(
+                                        "Rate limit hit while retrieving author data. Retrying..."
+                                    )
+                                    time.sleep(1 * (2 ** attempt))
+                            except Exception as e:
+                                st.warning(f'Warning: {e}')
                         if df is None or df.empty:
                             if last_warning:
                                 last_warning.empty()

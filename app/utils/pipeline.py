@@ -108,7 +108,6 @@ def authors_working_at_institution_in_year(
         except Exception as e:
             msg = f"Error retrieving authors for institution {inst_id}: {e}."
             break
-
     return aids, msg
 
 def count_author_works_in_period(author_id: str, mailto: str,
@@ -181,7 +180,6 @@ def get_json_with_retry(endpoint, params, max_retries=3, timeout=60):
             )
             if r.status_code == 429:
                 retry_after = int(r.headers.get("Retry-After", 2))
-                # 🚨 Ignore huge waits (like 14h)
                 if retry_after > 60:
                     raise RuntimeError(
                         f"🚨 Rate limit too high ({retry_after}s ~ {retry_after/3600:.2f}.h). "
