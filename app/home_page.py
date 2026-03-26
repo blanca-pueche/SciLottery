@@ -154,8 +154,9 @@ if inputIds:
                                 except Exception:
                                     continue
 
-                            aids = filtered_aids
-                            break
+                            if filtered_aids:
+                                aids = filtered_aids
+                                break
                         if not aids:
                             st.warning(f"Skipping institution {inst} due to repeated errors.")
                             continue
@@ -415,6 +416,6 @@ st.markdown("""
     </style>
 
     <div class="footer">
-        © 2026 CNB – Performance predictor 📈
+        © 2026 - SciLottery 📈
     </div>
 """, unsafe_allow_html=True)

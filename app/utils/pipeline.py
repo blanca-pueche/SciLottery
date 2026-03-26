@@ -44,9 +44,6 @@ def authors_working_at_institution_in_year(
             "mailto": mailto,
         }
         try:
-            #r = requests.get(f"{BASE_URL}/authors", params=params, timeout=60)
-            #r.raise_for_status()
-            #data = r.json()
             data = get_json_with_retry("authors", params)
             for a in data.get("results", []):
 
@@ -129,10 +126,6 @@ def count_author_works_in_period(author_id: str, mailto: str,
         "per_page": 1,   # we only need meta.count
         "mailto": mailto,
     }
-
-    #r = requests.get(f"{BASE_URL}/works", params=params, timeout=60)
-    #r.raise_for_status()
-    #data = r.json()
     try:
         data = get_json_with_retry("works", params)
         msg = ''
