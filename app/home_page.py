@@ -12,6 +12,8 @@ if "show_performance" not in st.session_state:
     st.session_state.show_performance = False
 if "search_mode" not in st.session_state:
     st.session_state.search_mode = None
+if "skip_counter" not in st.session_state:
+    st.session_state.skip_counter = 0
 
 st.set_page_config(
     page_title="SciLottery",
@@ -104,6 +106,7 @@ if inputIds:
     minPapers = st.number_input("Minimum number of papers per author:", value=10, min_value=0)
     minCitations = st.number_input("Minimum number of citations per author:", value=100, min_value=0)
     if st.button("Perform search", type='primary'):
+        st.session_state.skip_counter = 0
         st.session_state.show_performance = True
         with st.spinner("OpenAlex search..."):
             try:
@@ -158,7 +161,14 @@ if inputIds:
                                 aids = filtered_aids
                                 break
                         if not aids:
-                            st.warning(f"Skipping institution {inst} due to repeated errors.")
+                            st.session_state.skip_counter += 1
+                            st.warning(
+                                f"Skipping institution {inst} due to repeated errors.")
+
+                            if st.session_state.skip_counter > 3:
+                                st.error("Too many failed institutions. Stopping execution.")
+                                st.stop()
+
                             continue
 
                         aids_processed += len(aids)
@@ -206,6 +216,9 @@ if inputIds:
                     progress_bar = st.progress(0)
                     total_aids = len(aids)
 
+                    skip_counter = 0
+                    max_skips = 3
+
                     for idx, aid in enumerate(aids):
                         works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
                         if works is None:
@@ -213,6 +226,11 @@ if inputIds:
                                 last_warning.empty()
                             st.warning(f"{msg}. Retrying...")
                             st.warning(f"Skipping {aid} due to repeated request failures")
+                            skip_counter += 1
+
+                            if skip_counter >= max_skips:
+                                st.error("Too many skipped authors. Stopping execution.")
+                                st.stop()
                         elif works >= minPapers:
                             filtered_aids.append(aid)
                         progress_bar.progress((idx + 1) / total_aids * phase1_weight)
