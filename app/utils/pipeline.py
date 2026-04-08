@@ -161,11 +161,24 @@ def count_author_works_in_period_safe(author_id: str, mailto: str,
 
     return None
 
+_last_call = 0
+
+def throttle(min_delay=0.3):
+    global _last_call
+    now = time.time()
+    elapsed = now - _last_call
+
+    if elapsed < min_delay:
+        time.sleep(min_delay - elapsed)
+
+    _last_call = time.time()
+
 def get_json_with_retry(endpoint, params, max_retries=3, timeout=60):
     delay = 1.0
 
     for attempt in range(max_retries):
         try:
+            throttle()
             r = requests.get(
                 f"{BASE_URL}/{endpoint}",
                 params=params,
