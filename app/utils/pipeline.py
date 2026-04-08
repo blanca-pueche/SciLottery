@@ -268,7 +268,7 @@ def citation_distribution_for_work_set(
     y0: int,
     y1: int,
     mailto: str,
-    sleep_s: float = 1,
+    sleep_s: float = 0.05,
     work_citation_cache: dict | None = None,
 ):
     """Return list of per-work citation counts within [y0, y1] for a unique set of works."""
@@ -291,7 +291,7 @@ def build_author_df_and_unique_work_distributions(
     y0: int,
     y1: int,
     mailto: str,
-    sleep_s: float = 1,
+    sleep_s: float = 0.05,
     per_page_works: int = 200,
     work_citation_cache: dict | None = None,
 ):
