@@ -71,6 +71,8 @@ st.markdown(
     "<p style='text-align:left; color:gray; margin-top:0;'>Prediction of researcher performance from OpenAlex bibliometric data under uncertainty.</p>",
     unsafe_allow_html=True
 )
+if "work_citation_cache" not in st.session_state:
+    st.session_state.work_citation_cache = {}
 
 minPapers = 0
 minCitations = 0
@@ -94,6 +96,7 @@ if not email and searchBy:
 
 inputIds = None
 dfAll = {}
+last_warning = None
 if searchBy == options[0]:
     # Selected institutions
     inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas.')
@@ -131,27 +134,21 @@ if inputIds:
                             filtered_aids = []
                             if not aids:
                                 if attempt < 2:
-                                    if last_warning:
+                                    if last_warning is not None:
                                         last_warning.empty()
-
-                                    last_warning = st.warning(f"{msg}. .. Retrying...")
+                                    last_warning = st.warning(f"{msg} Retrying...")
                                     time.sleep(1 * (2 ** attempt))
                                     continue
                                 else:
-                                    last_warning = st.warning(
-                                        f"Skipping institution {inst} due to repeated errors."
-                                    )
-                                    if last_warning:
+                                    if last_warning is not None:
                                         last_warning.empty()
+                                    st.warning(f"Skipping institution {inst} due to repeated errors.")
                                     break
                             for aid in aids:
                                 try:
                                     works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
                                     if works is None:
-                                        if last_warning:
-                                            last_warning.empty()
-                                        st.warning(f"{msg}. Retrying...")
-                                        st.warning(f"Skipping {aid} due to repeated request failures")
+                                        st.warning(f"{msg}.")
                                     if works >= minPapers:
                                         filtered_aids.append(aid)
                                 except Exception:
@@ -162,8 +159,6 @@ if inputIds:
                                 break
                         if not aids:
                             st.session_state.skip_counter += 1
-                            st.warning(
-                                f"Skipping institution {inst} due to repeated errors.")
 
                             if st.session_state.skip_counter > 3:
                                 st.error("Too many failed institutions. Stopping execution.")
@@ -178,35 +173,34 @@ if inputIds:
                         progress_bar.progress(min(phase1_progress, phase1_weight))
                         for attempt in range(3):
                             try:
-                                df, _, _ = build_author_df_and_unique_work_distributions(
+                                df, _, st.session_state.work_citation_cache = build_author_df_and_unique_work_distributions(
                                     aids,
                                     y0=y0,
                                     y1=y1,
                                     mailto=email,
-                                    sleep_s=0.05
+                                    sleep_s=0.05,
+                                    work_citation_cache=st.session_state.work_citation_cache
                                 )
                                 if df is not None and not df.empty:
                                     break
-                                if last_warning:
-                                    last_warning.empty()
                                 if attempt < 2:
+                                    if last_warning is not None:
+                                        last_warning.empty()
                                     last_warning = st.warning(
-                                        "Rate limit hit while retrieving author data. Retrying..."
+                                        "Rate limit reached. Retrying request..."
                                     )
                                     time.sleep(1 * (2 ** attempt))
                             except Exception as e:
-                                st.warning(f'Warning: {e}')
+                                st.warning(str(e))
                         if df is None or df.empty:
-                            if last_warning:
-                                last_warning.empty()
-                            last_warning = st.warning("Author data incomplete due to repeated errors.")
+                            last_warning = st.warning("Some author data could not be retrieved due to repeated request errors.")
                         else:
                             dfAll[inst] = df
                         insts_processed += 1
                         phase2_progress = phase2_weight * (insts_processed / total_insts)
                         progress_bar.progress(phase1_weight + phase2_progress)
                     if not dfAll:
-                        st.warning("Institute data incomplete due to repeated errors.")
+                        st.warning("Some institutions could not be processed due to repeated request errors.")
                     progress_bar.progress(1.0)
                 elif searchBy == options[1]:
                     last_warning = None
@@ -222,52 +216,56 @@ if inputIds:
                     for idx, aid in enumerate(aids):
                         works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
                         if works is None:
-                            if last_warning:
+                            if last_warning is not None:
                                 last_warning.empty()
-                            st.warning(f"{msg}. Retrying...")
-                            st.warning(f"Skipping {aid} due to repeated request failures")
+                            last_warning = st.warning(f"{msg}.")
                             skip_counter += 1
 
                             if skip_counter >= max_skips:
-                                st.error("Too many skipped authors. Stopping execution.")
-                                st.stop()
+                                if last_warning is not None:
+                                    last_warning.empty()
+                                st.warning(f"Skipping {aid} due to repeated errors.")
+                                progress_bar.progress(1.0)
                         elif works >= minPapers:
                             filtered_aids.append(aid)
                         progress_bar.progress((idx + 1) / total_aids * phase1_weight)
 
                     if not filtered_aids:
+                        if last_warning is not None:
+                            last_warning.empty()
                         last_warning = st.warning(f"No authors have at least {minPapers} papers in the selected period.")
                     aids = filtered_aids
 
                     df = None
                     for attempt in range(3):
-                        df, _, _ = build_author_df_and_unique_work_distributions(
+                        df, _, st.session_state.work_citation_cache = build_author_df_and_unique_work_distributions(
                             aids,
                             y0=y0,
                             y1=y1,
                             mailto=email,
-                            sleep_s=0.05
+                            sleep_s=0.05,
+                            work_citation_cache=st.session_state.work_citation_cache
                         )
                         progress_bar.progress(
                             phase1_weight + (attempt + 1) / 5 * phase2_weight
                         )
                         if df is not None and not df.empty:
                             break
-                        if last_warning:
-                            last_warning.empty()
                         if attempt < 2:
+                            if last_warning is not None:
+                                last_warning.empty()
                             last_warning = st.warning(
-                                "Rate limit hit while retrieving author data. Retrying..."
+                                "Rate limit reached. Retrying request..."
                             )
                             time.sleep(1 * (2 ** attempt))
                         else:
-                            last_warning = st.warning(
-                                "Author data incomplete due to repeated errors."
-                            )
+                            if last_warning is not None:
+                                last_warning.empty()
+                            last_warning = st.warning("Some author data could not be retrieved due to repeated request errors.")
                     if df is None or df.empty:
-                        if last_warning:
+                        if last_warning is not None:
                             last_warning.empty()
-                        last_warning = st.warning("Author data incomplete due to repeated errors.")
+                        st.warning("Some author data could not be retrieved due to repeated request errors.")
                     else:
                         dfAll["inputAIDs"] = df
                 st.session_state.dfAll = dfAll
