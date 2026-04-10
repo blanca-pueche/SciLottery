@@ -176,12 +176,18 @@ def throttle(min_delay=0.3):
 def get_json_with_retry(endpoint, params, max_retries=3, timeout=60):
     delay = 1.0
 
+    headers = {
+        "Accept-Encoding": "gzip",
+        "User-Agent": "SciLottery/1.0"
+    }
+
     for attempt in range(max_retries):
         try:
             throttle()
             r = requests.get(
                 f"{BASE_URL}/{endpoint}",
                 params=params,
+                headers=headers,
                 timeout=timeout
             )
             if r.status_code == 429:
@@ -353,17 +359,21 @@ def build_author_df_and_unique_work_distributions(
     )
 
     # unique-work distribution across all authors
-    dist1_unique = [
-        citation_count_for_work_in_year_range(
-            wid,
-            y0,
-            y1,
-            mailto=mailto,
-            sleep_s=sleep_s,
-            work_citation_cache=work_citation_cache,
-        )
-        for wid in all_works1
-    ]
+    dist1_unique = []
+    for wid in all_works1:
+        try:
+            c = citation_count_for_work_in_year_range(
+                wid,
+                y0,
+                y1,
+                mailto=mailto,
+                sleep_s=sleep_s,
+                work_citation_cache=work_citation_cache,
+            )
+            dist1_unique.append(c)
+        except Exception as e:
+            print(f"Error with work {wid}: {e}")
+            continue
 
     return df, dist1_unique, work_citation_cache
 

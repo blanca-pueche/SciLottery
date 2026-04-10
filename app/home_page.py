@@ -156,6 +156,7 @@ if inputIds:
 
                             if filtered_aids:
                                 aids = filtered_aids
+                                print(f'Filtered aids: {aids}')
                                 break
                         if not aids:
                             st.session_state.skip_counter += 1
@@ -196,6 +197,15 @@ if inputIds:
                             last_warning = st.warning("Some author data could not be retrieved due to repeated request errors.")
                         else:
                             dfAll[inst] = df
+
+                        retrieved = len(df)
+                        expected = len(aids)
+                        if retrieved < expected:
+                            st.warning(
+                                f"⚠️ Filtering applied: {retrieved}/{expected} authors retrieved, "
+                                f"{len(df)} retained after applying minimum publication and citation thresholds."
+                            )
+
                         insts_processed += 1
                         phase2_progress = phase2_weight * (insts_processed / total_insts)
                         progress_bar.progress(phase1_weight + phase2_progress)
@@ -268,6 +278,16 @@ if inputIds:
                         st.warning("Some author data could not be retrieved due to repeated request errors.")
                     else:
                         dfAll["inputAIDs"] = df
+
+                    retrieved = len(df) if df is not None else 0
+                    expected = len(aids)
+
+                    if retrieved < expected:
+                        st.warning(
+                            f"⚠️ Filtering applied: {retrieved}/{expected} authors retrieved, "
+                            f"{len(df)} retained after applying minimum publication and citation thresholds."
+                        )
+
                 st.session_state.dfAll = dfAll
                 progress_bar.progress(1.0)
             except Exception as e:
