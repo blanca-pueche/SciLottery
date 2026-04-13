@@ -64,11 +64,46 @@ h3 {font-size: 19px !important; margin-bottom: 0.2rem;}
 st.logo("assets/bcu_logo.png", size="large")
 
 st.markdown(
-    "<h1 style='text-align:left; margin-bottom:0;'>SciLottery</h1>",
-    unsafe_allow_html=True
-)
-st.markdown(
-    "<p style='text-align:left; color:gray; margin-top:0;'>Prediction of researcher performance from OpenAlex bibliometric data under uncertainty.</p>",
+    """
+    <h1 style='text-align:left; margin-bottom:0;'>SciLottery</h1>
+    <h3>A computational tool for research funding under uncertainty</h3>
+
+    <p>
+        <b>SciLottery</b> implements the models described in 
+        <i>“Research Funding as a Decision Problem Under Heavy-Tailed Uncertainty.”</i> 
+        It provides a practical way to compute and explore funding allocations based on 
+        bibliometric data and decision-theoretic principles.
+    </p>
+
+    <p><b>The underlying framework assumes that:</b></p>
+    <ul>
+        <li><b>Scientific impact</b> is heavy-tailed and only partially predictable</li>
+        <li><b>Past performance</b> contains statistically meaningful but imperfect signals of future outcomes</li>
+        <li><b>Impact-optimized allocation rules</b> tend to produce highly concentrated funding</li>
+    </ul>
+
+    <p>
+        To address this, <b>SciLottery</b> implements deterministic allocation rules that 
+        explicitly balance <b>exploitation</b> of predictive signals with <b>exploration</b> 
+        under uncertainty.
+    </p>
+
+    <h4>What the tool does</h4>
+    <p>Given a set of researchers and their performance indicators, <b>SciLottery</b>:</p>
+    <ul>
+        <li>Computes <b>normalized performance scores</b> (e.g., percentile-based aggregates)</li>
+        <li>Transforms these scores into <b>allocation rules</b> or <b>selection probabilities</b></li>
+        <li>Allows comparison between <b>concentrated</b>, <b>uniform</b>, and <b>lottery-based</b> allocations</li>
+    </ul>
+
+    <h4>Purpose</h4>
+    <p><b>SciLottery</b> is not a decision system by itself, but a calculator to:</p>
+    <ul>
+        <li>Evaluate how different allocation policies behave under realistic assumptions</li>
+        <li>Quantify the effects of <b>concentration</b>, <b>exploration</b>, and <b>randomness</b></li>
+        <li>Support the analysis of funding strategies in the presence of uncertainty</li>
+    </ul>
+    """,
     unsafe_allow_html=True
 )
 if "work_citation_cache" not in st.session_state:
@@ -99,10 +134,10 @@ dfAll = {}
 last_warning = None
 if searchBy == options[0]:
     # Selected institutions
-    inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas.')
+    inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://api.openalex.org)')
 elif searchBy == options[1]:
     # Selected authors
-    inputIds = st.text_input("Author ids:", help='If more than one, separate with commas.')
+    inputIds = st.text_input("Author ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://api.openalex.org)')
 
 # Submit to retrieve info
 if inputIds:
