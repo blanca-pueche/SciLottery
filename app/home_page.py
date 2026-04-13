@@ -132,10 +132,10 @@ last_warning = None
 
 if searchBy == options[0]:
     # Selected institutions
-    inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://api.openalex.org)')
+    inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://openalex.org/)')
 elif searchBy == options[1]:
     # Selected authors
-    inputIds = st.text_input("Author ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://api.openalex.org)')
+    inputIds = st.text_input("Author ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://openalex.org/)')
 
 # Submit to retrieve info
 if inputIds:
@@ -438,9 +438,9 @@ if dfAll and st.session_state.show_performance:
             gamma=gamma,
             lambda_uniform=lambda_val,
             score_weights={
-                "count1_rank": count1,
-                "citations1_rank": citations1,
-                "maxCitation1_rank": maxCit1
+                "count1": count1,
+                "citations1": citations1,
+                "maxCitation1": maxCit1
             },
             b_floor=b_floor,
             b_cap=b_cap
