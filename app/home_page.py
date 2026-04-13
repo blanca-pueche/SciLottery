@@ -119,7 +119,8 @@ year_range = st.slider("Year range:", min_value=2010, max_value=2026, value=(202
 
 y0, y1 = year_range
 options = ['Institute', 'Author']
-searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
+#searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
+searchBy = options[1]
 if searchBy != st.session_state.search_mode:
     st.session_state.search_mode = searchBy
     st.session_state.dfAll = None
@@ -132,6 +133,7 @@ if not email and searchBy:
 inputIds = None
 dfAll = {}
 last_warning = None
+
 if searchBy == options[0]:
     # Selected institutions
     inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://api.openalex.org)')
@@ -429,12 +431,6 @@ if dfAll and st.session_state.show_performance:
 
     if st.button("Run budget allocation", type='primary'):
         df_raw = pd.concat(dfClean.values(), ignore_index=True)
-
-        st.dataframe(out[[
-            "authorID",
-            "count1", "citations1", "maxCitation1",
-            "count1_rank", "citations1_rank", "maxCitation1_rank"
-        ]].sort_values("citations1_rank"))
 
         alloc = allocate_budget(
             df=df_raw,

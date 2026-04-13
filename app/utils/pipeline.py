@@ -395,6 +395,7 @@ def ensure_rank_cols(df, cols):
         if rcol in out.columns:
             continue
         r = out[c].rank(method="average", ascending=False)
+        print(f'col: {rcol}, rank: {r}')
         denom = r.max() - 1
         out[rcol] = 0.5 if denom == 0 else (r - 1) / denom
     return out
@@ -414,13 +415,8 @@ def build_score_from_ranks(df, rank_cols, weights=None, clip_eps=1e-9):
     w = w / w.sum()
 
     G = np.vstack([(1.0 - df[c].to_numpy(dtype=float)) for c in rank_cols]).T  # shape (n,k)
-    print("\n=== GOODNESS MATRIX (1 - rank) ===")
-    print(G)
-    print("\n=== WEIGHTS ===")
-    print(w)
+
     s = (G * w).sum(axis=1)
-    print("\n=== RAW SCORE BEFORE CLIP ===")
-    print(s)
     # avoid exact zeros (helps when raising to gamma)
     s = np.clip(s, clip_eps, 1.0)
     return s
@@ -571,12 +567,47 @@ def allocate_budget(
     if n == 0:
         raise ValueError("df is empty.")
 
+    print("\nCOLUMNS IN DF:")
+    print(out.columns)
+
     # Ensure needed rank cols exist (if user gave raw cols only)
-    base_cols = [c.replace("_rank", "") for c in use_rank_cols]
-    out = ensure_rank_cols(out, base_cols)
+    #base_cols = [c.replace("_rank", "") for c in use_rank_cols]
+    #out = ensure_rank_cols(out, base_cols)
 
     # Build score from rank cols
-    s = build_score_from_ranks(out, list(use_rank_cols), weights=score_weights)
+    #s = build_score_from_ranks(out, list(use_rank_cols), weights=score_weights)
+    #out["score"] = s
+
+    #todo this si new:
+    # Use percentile-based score directly
+    required_cols = ["count1Perc", "citationAvg1Perc", "maxCitation1Perc"]
+
+    missing = [c for c in required_cols if c not in out.columns]
+    if missing:
+        raise ValueError(f"Missing required columns for scoring: {missing}")
+
+    # Normalize weights
+    w = np.array([
+        score_weights.get("count1", 0.0),
+        score_weights.get("citations1", 0.0),
+        score_weights.get("maxCitation1", 0.0)
+    ], dtype=float)
+
+    if np.all(w == 0):
+        raise ValueError("All weights are zero.")
+
+    w = w / w.sum()
+
+    # Build score directly from percentiles
+    G = np.vstack([
+        out["count1Perc"].to_numpy(),
+        out["citationAvg1Perc"].to_numpy(),
+        out["maxCitation1Perc"].to_numpy()
+    ]).T
+
+    s = (G * w).sum(axis=1)
+    s = np.clip(s, 1e-9, 1.0)
+
     out["score"] = s
 
     # Exploration part
