@@ -384,43 +384,6 @@ def build_author_df_and_unique_work_distributions(
     #return df, dist1_unique, work_citation_cache, e
     return df, dist1_unique, work_citation_cache, e, ("Rate limit" in str(e) if e else False)
 
-def ensure_rank_cols(df, cols):
-    """
-    Ensure normalized rank columns exist for each col in cols.
-    Best -> 0, worst -> 1. Adds <col>_rank if missing.
-    """
-    out = df.copy()
-    for c in cols:
-        rcol = f"{c}_rank"
-        if rcol in out.columns:
-            continue
-        r = out[c].rank(method="average", ascending=False)
-        print(f'col: {rcol}, rank: {r}')
-        denom = r.max() - 1
-        out[rcol] = 0.5 if denom == 0 else (r - 1) / denom
-    return out
-
-
-def build_score_from_ranks(df, rank_cols, weights=None, clip_eps=1e-9):
-    """
-    Convert rank columns (0 best .. 1 worst) into a score s in [0,1]:
-      goodness = 1 - rank
-      s = weighted average goodness
-    """
-    if weights is None:
-        weights = {c: 1.0 for c in rank_cols}
-    w = np.array([weights.get(c, 0.0) for c in rank_cols], dtype=float)
-    if np.all(w == 0):
-        raise ValueError("All weights are zero.")
-    w = w / w.sum()
-
-    G = np.vstack([(1.0 - df[c].to_numpy(dtype=float)) for c in rank_cols]).T  # shape (n,k)
-
-    s = (G * w).sum(axis=1)
-    # avoid exact zeros (helps when raising to gamma)
-    s = np.clip(s, clip_eps, 1.0)
-    return s
-
 def sanitizeIds(input_str, st, prefix):
     """
     Clean and validate input IDs (author or institution).
@@ -563,18 +526,6 @@ def allocate_budget(
     if n == 0:
         raise ValueError("df is empty.")
 
-    print("\nCOLUMNS IN DF:")
-    print(out.columns)
-
-    # Ensure needed rank cols exist (if user gave raw cols only)
-    #base_cols = [c.replace("_rank", "") for c in use_rank_cols]
-    #out = ensure_rank_cols(out, base_cols)
-
-    # Build score from rank cols
-    #s = build_score_from_ranks(out, list(use_rank_cols), weights=score_weights)
-    #out["score"] = s
-
-    #todo this si new:
     # Use percentile-based score directly
     required_cols = ["count1Perc", "citationAvg1Perc", "maxCitation1Perc"]
 
