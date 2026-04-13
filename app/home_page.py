@@ -386,9 +386,6 @@ if dfAll and st.session_state.show_performance:
     )
     st.caption(f"**Shape:** {df.shape}", )
 
-    score_col = "avgPerc1"
-    target_col = "avgPerc2"
-
     alpha = None
     lambda_val = None
     gamma = None
