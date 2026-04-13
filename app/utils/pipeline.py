@@ -414,7 +414,13 @@ def build_score_from_ranks(df, rank_cols, weights=None, clip_eps=1e-9):
     w = w / w.sum()
 
     G = np.vstack([(1.0 - df[c].to_numpy(dtype=float)) for c in rank_cols]).T  # shape (n,k)
+    print("\n=== GOODNESS MATRIX (1 - rank) ===")
+    print(G)
+    print("\n=== WEIGHTS ===")
+    print(w)
     s = (G * w).sum(axis=1)
+    print("\n=== RAW SCORE BEFORE CLIP ===")
+    print(s)
     # avoid exact zeros (helps when raising to gamma)
     s = np.clip(s, clip_eps, 1.0)
     return s

@@ -433,6 +433,12 @@ if dfAll and st.session_state.show_performance:
     if st.button("Run budget allocation", type='primary'):
         df_raw = pd.concat(dfClean.values(), ignore_index=True)
 
+        st.dataframe(out[[
+            "authorID",
+            "count1", "citations1", "maxCitation1",
+            "count1_rank", "citations1_rank", "maxCitation1_rank"
+        ]].sort_values("citations1_rank"))
+
         alloc = allocate_budget(
             df=df_raw,
             B=B,
