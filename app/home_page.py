@@ -439,9 +439,9 @@ if dfAll and st.session_state.show_performance:
             gamma=gamma,
             lambda_uniform=lambda_val,
             score_weights={
-                "count1_rank": count1,
-                "citations1_rank": citations1,
-                "maxCitation1_rank": maxCit1
+                "count1": count1,
+                "citations1": citations1,
+                "maxCitation1": maxCit1
             },
             b_floor=b_floor,
             b_cap=b_cap
