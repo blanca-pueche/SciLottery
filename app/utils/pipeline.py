@@ -35,6 +35,8 @@ def authors_working_at_institution_in_year(
     max_retries = 5
     retry_count = 0
 
+    e = None
+
     while cursor:
         params = {
             "filter": prefilter,
@@ -81,7 +83,8 @@ def authors_working_at_institution_in_year(
                     aids.add(a["id"].split("/")[-1])
 
             cursor = data.get("meta", {}).get("next_cursor")
-        except requests.exceptions.HTTPError as e:
+        except requests.exceptions.HTTPError as err:
+            e = err
             status = e.response.status_code
             if status == 429:
                 wait_time = int(e.response.headers.get("Retry-After", 2))
@@ -102,10 +105,11 @@ def authors_working_at_institution_in_year(
                 msg = f"HTTP error {status} for institution {inst_id}. Skipping page."
                 break
 
-        except Exception as e:
+        except Exception as err:
+            e = err
             msg = f"Error retrieving authors for institution {inst_id}: {e}."
             break
-    return aids, msg
+    return aids, msg, e
 
 def count_author_works_in_period(author_id: str, mailto: str,
                                  start_year: int,
@@ -313,6 +317,7 @@ def build_author_df_and_unique_work_distributions(
     rows = []
     all_works1 = set()
     counter = 0
+    e = None
 
     for aid in aids:
         aid_norm = aid.split("/")[-1].strip()
@@ -371,11 +376,13 @@ def build_author_df_and_unique_work_distributions(
                 work_citation_cache=work_citation_cache,
             )
             dist1_unique.append(c)
-        except Exception as e:
+        except Exception as err:
+            e = err
             print(f"Error with work {wid}: {e}")
-            continue
+            break
 
-    return df, dist1_unique, work_citation_cache
+    #return df, dist1_unique, work_citation_cache, e
+    return df, dist1_unique, work_citation_cache, e, ("Rate limit" in str(e) if e else False)
 
 def ensure_rank_cols(df, cols):
     """

@@ -144,6 +144,7 @@ if inputIds:
     minPapers = st.number_input("Minimum number of papers per author:", value=10, min_value=0)
     minCitations = st.number_input("Minimum number of citations per author:", value=100, min_value=0)
     if st.button("Perform search", type='primary'):
+        st.session_state.rate_limit_shown = False
         st.session_state.skip_counter = 0
         st.session_state.show_performance = True
         with st.spinner("OpenAlex search..."):
@@ -165,7 +166,9 @@ if inputIds:
                     for idx, inst in enumerate(inst_ids):
                         aids = None
                         for attempt in range(3):
-                            aids, msg = authors_working_at_institution_in_year(inst_id=inst, year=y1, mailto=email, min_total_works=minPapers, min_total_citations=minCitations)
+                            aids, msg, excep = authors_working_at_institution_in_year(inst_id=inst, year=y1, mailto=email, min_total_works=minPapers, min_total_citations=minCitations)
+                            print(f'AIDS FOR INST {inst}: {aids} --- {len(aids)}')
+                            og_aids = aids
                             filtered_aids = []
                             if not aids:
                                 if attempt < 2:
@@ -178,6 +181,7 @@ if inputIds:
                                     if last_warning is not None:
                                         last_warning.empty()
                                     st.warning(f"Skipping institution {inst} due to repeated errors.")
+                                    st.warning(f'We have limited queries to OpenAlex. \n {excep}')
                                     break
                             for aid in aids:
                                 try:
@@ -208,7 +212,7 @@ if inputIds:
                         progress_bar.progress(min(phase1_progress, phase1_weight))
                         for attempt in range(3):
                             try:
-                                df, _, st.session_state.work_citation_cache = build_author_df_and_unique_work_distributions(
+                                df, _, st.session_state.work_citation_cache, e, rate_limited = build_author_df_and_unique_work_distributions(
                                     aids,
                                     y0=y0,
                                     y1=y1,
@@ -225,21 +229,20 @@ if inputIds:
                                         "Rate limit reached. Retrying request..."
                                     )
                                     time.sleep(1 * (2 ** attempt))
+                                if rate_limited and not st.session_state.get("rate_limit_shown", False):
+                                    st.warning(
+                                        "⚠️ OpenAlex rate limit reached. Results may be incomplete, but partial data was retrieved.")
+                                    st.session_state.rate_limit_shown = True
                             except Exception as e:
                                 st.warning(str(e))
                         if df is None or df.empty:
-                            last_warning = st.warning("Some author data could not be retrieved due to repeated request errors.")
+                            #last_warning = st.warning("Some author data could not be retrieved due to repeated request errors.")
+                            if rate_limited:
+                                st.warning("⚠️ Partial results due to OpenAlex rate limits.")
+                            else:
+                                st.warning("No data retrieved for these authors.")
                         else:
                             dfAll[inst] = df
-
-                        if df is not None:
-                            retrieved = len(df)
-                            expected = len(aids)
-                            if retrieved < expected:
-                                st.warning(
-                                    f"⚠️ Filtering applied: {retrieved}/{expected} authors retrieved, "
-                                    f"{len(df)} retained after applying minimum publication and citation thresholds."
-                                )
 
                         insts_processed += 1
                         phase2_progress = phase2_weight * (insts_processed / total_insts)
@@ -283,7 +286,7 @@ if inputIds:
 
                     df = None
                     for attempt in range(3):
-                        df, _, st.session_state.work_citation_cache = build_author_df_and_unique_work_distributions(
+                        df, _, st.session_state.work_citation_cache, e, rate_limited = build_author_df_and_unique_work_distributions(
                             aids,
                             y0=y0,
                             y1=y1,
@@ -303,25 +306,20 @@ if inputIds:
                                 "Rate limit reached. Retrying request..."
                             )
                             time.sleep(1 * (2 ** attempt))
-                        else:
-                            if last_warning is not None:
-                                last_warning.empty()
-                            last_warning = st.warning("Some author data could not be retrieved due to repeated request errors.")
+                        if rate_limited and not st.session_state.get("rate_limit_shown", False):
+                            st.warning(
+                                "⚠️ OpenAlex rate limit reached. Results may be incomplete, but partial data was retrieved.")
+                            st.session_state.rate_limit_shown = True
                     if df is None or df.empty:
-                        if last_warning is not None:
-                            last_warning.empty()
-                        st.warning("Some author data could not be retrieved due to repeated request errors.")
+                        #if last_warning is not None:
+                        #    last_warning.empty()
+                        #st.warning("Some author data could not be retrieved due to repeated request errors.")
+                        if rate_limited:
+                            st.warning("⚠️ Partial results due to OpenAlex rate limits.")
+                        else:
+                            st.warning("No data retrieved for these authors.")
                     else:
                         dfAll["inputAIDs"] = df
-
-                    if df is not None:
-                        retrieved = len(df)
-                        expected = len(aids)
-                        if retrieved < expected:
-                            st.warning(
-                                f"⚠️ Filtering applied: {retrieved}/{expected} authors retrieved, "
-                                f"{len(df)} retained after applying minimum publication and citation thresholds."
-                            )
 
                 st.session_state.dfAll = dfAll
                 progress_bar.progress(1.0)
