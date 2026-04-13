@@ -136,10 +136,10 @@ last_warning = None
 
 if searchBy == options[0]:
     # Selected institutions
-    inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://api.openalex.org)')
+    inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://openalex.org/)')
 elif searchBy == options[1]:
     # Selected authors
-    inputIds = st.text_input("Author ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://api.openalex.org)')
+    inputIds = st.text_input("Author ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://openalex.org/)')
 
 # Submit to retrieve info
 if inputIds:
