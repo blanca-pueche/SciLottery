@@ -220,6 +220,7 @@ if inputIds:
                                     sleep_s=0.05,
                                     work_citation_cache=st.session_state.work_citation_cache
                                 )
+                                print(f'---rate limited: {rate_limited}')
                                 if df is not None and not df.empty:
                                     break
                                 if attempt < 2:
