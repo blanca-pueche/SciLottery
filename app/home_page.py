@@ -126,10 +126,6 @@ if searchBy != st.session_state.search_mode:
     st.session_state.dfAll = None
     st.session_state.show_performance = False
 
-if not email and searchBy:
-    st.warning("Email must be entered to continue")
-    st.stop()
-
 inputIds = None
 dfAll = {}
 last_warning = None
@@ -146,6 +142,9 @@ if inputIds:
     minPapers = st.number_input("Minimum number of papers per author:", value=10, min_value=0)
     minCitations = st.number_input("Minimum number of citations per author:", value=100, min_value=0)
     if st.button("Perform search", type='primary'):
+        if not email:
+            st.warning("Email must be entered to continue")
+            st.stop()
         st.session_state.rate_limit_shown = False
         st.session_state.skip_counter = 0
         st.session_state.show_performance = True
