@@ -421,7 +421,7 @@ def build_score_from_ranks(df, rank_cols, weights=None, clip_eps=1e-9):
     s = np.clip(s, clip_eps, 1.0)
     return s
 
-def sanitizeIds(input_str, st, prefix, max_ids=200):
+def sanitizeIds(input_str, st, prefix):
     """
     Clean and validate input IDs (author or institution).
 
@@ -443,10 +443,6 @@ def sanitizeIds(input_str, st, prefix, max_ids=200):
             valid_ids.append(id_)
         else:
             st.warning(f"Invalid ID skipped: {id_}")
-
-    if len(valid_ids) > max_ids:
-        st.warning(f"Only the first {max_ids} IDs will be used.")
-        valid_ids = valid_ids[:max_ids]
 
     if not valid_ids:
         st.error(f"No valid IDs provided with prefix '{prefix}'.")
