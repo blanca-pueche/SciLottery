@@ -102,8 +102,13 @@ st.markdown(
         <li>Evaluate how different allocation policies behave under realistic assumptions</li>
         <li>Quantify the effects of <b>concentration</b>, <b>exploration</b>, and <b>randomness</b></li>
         <li>Support the analysis of funding strategies in the presence of uncertainty</li>
-    </ul>
+    </ul>   
     """,
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    "<hr style='margin-top: 25px; margin-bottom: 25px; border: none; height: 1px; background: #ddd;'>",
     unsafe_allow_html=True
 )
 if "work_citation_cache" not in st.session_state:
@@ -168,7 +173,6 @@ if inputIds:
                         aids = None
                         for attempt in range(3):
                             aids, msg, excep = authors_working_at_institution_in_year(inst_id=inst, year=y1, mailto=email, min_total_works=minPapers, min_total_citations=minCitations)
-                            print(f'AIDS FOR INST {inst}: {aids} --- {len(aids)}')
                             og_aids = aids
                             filtered_aids = []
                             if not aids:
@@ -221,7 +225,6 @@ if inputIds:
                                     sleep_s=0.05,
                                     work_citation_cache=st.session_state.work_citation_cache
                                 )
-                                print(f'---rate limited: {rate_limited}')
                                 if df is not None and not df.empty:
                                     break
                                 if attempt < 2:
