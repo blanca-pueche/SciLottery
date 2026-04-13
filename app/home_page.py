@@ -225,6 +225,7 @@ if inputIds:
                                     sleep_s=0.05,
                                     work_citation_cache=st.session_state.work_citation_cache
                                 )
+                                print(f'rateLimited: {rate_limited}')
                                 if df is not None and not df.empty:
                                     break
                                 if attempt < 2:
@@ -236,7 +237,7 @@ if inputIds:
                                     time.sleep(1 * (2 ** attempt))
                                 if rate_limited and not st.session_state.get("rate_limit_shown", False):
                                     st.warning(
-                                        "⚠️ OpenAlex rate limit reached. Results may be incomplete, but partial data was retrieved.")
+                                        "⚠️ OpenAlex rate limit reached. Results may be incomplete, partial data was retrieved.")
                                     st.session_state.rate_limit_shown = True
                             except Exception as e:
                                 st.warning(str(e))

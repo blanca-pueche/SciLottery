@@ -197,9 +197,10 @@ def get_json_with_retry(endpoint, params, max_retries=3, timeout=60):
             if r.status_code == 429:
                 retry_after = int(r.headers.get("Retry-After", 2))
                 if retry_after > 60:
-                    raise RuntimeError(
-                        f"🚨 Rate limit too high ({retry_after}s ~ {retry_after/3600:.2f}.h). "
-                    )
+                    return {
+                        "__rate_limit__": True,
+                        "retry_after": retry_after
+                    }
 
                 time.sleep(min(retry_after, 5))
 
@@ -229,6 +230,11 @@ def get_author_work_ids_in_year_range(aid: str, y0: int, y1: int, mailto: str, p
             "mailto": mailto,
         }
         data = get_json_with_retry("works", params)
+
+        if isinstance(data, dict) and data.get("__rate_limit__"):
+            raise RuntimeError(
+                f"Rate limit ({data['retry_after']}s)"
+            )
         for w in data.get("results", []):
             work_ids.append(w["id"].split("/")[-1])  # W...
         cursor = data["meta"].get("next_cursor")
@@ -265,6 +271,11 @@ def citation_count_for_work_in_year_range(
         "mailto": mailto,
     }
     data = get_json_with_retry("works", params)
+
+    if isinstance(data, dict) and data.get("__rate_limit__"):
+        raise RuntimeError(
+            f"Rate limit ({data['retry_after']}s)"
+        )
     time.sleep(sleep_s)
     count = int(data["meta"]["count"])
 
@@ -317,6 +328,7 @@ def build_author_df_and_unique_work_distributions(
     rows = []
     all_works1 = set()
     counter = 0
+    rate_limited = False
     e = None
 
     for aid in aids:
@@ -353,8 +365,12 @@ def build_author_df_and_unique_work_distributions(
             print(counter, row)
             rows.append(row)
 
-        except Exception as e:
-            print(e)
+
+        except Exception as err:
+            print(err)
+            e = err
+            if "Rate limit" in str(err):
+                rate_limited = True
 
         counter += 1
 
@@ -377,12 +393,14 @@ def build_author_df_and_unique_work_distributions(
             )
             dist1_unique.append(c)
         except Exception as err:
+            print(f"Error with work {wid}: {err}")
             e = err
-            print(f"Error with work {wid}: {e}")
+            if "Rate limit" in str(err):
+                rate_limited = True
             break
 
     #return df, dist1_unique, work_citation_cache, e
-    return df, dist1_unique, work_citation_cache, e, ("Rate limit" in str(e) if e else False)
+    return df, dist1_unique, work_citation_cache, e, rate_limited
 
 def sanitizeIds(input_str, st, prefix):
     """
