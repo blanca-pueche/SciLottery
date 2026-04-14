@@ -124,8 +124,7 @@ year_range = st.slider("Year range:", min_value=2010, max_value=2026, value=(202
 
 y0, y1 = year_range
 options = ['Institute', 'Author']
-#searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
-searchBy = options[1]
+searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
 if searchBy != st.session_state.search_mode:
     st.session_state.search_mode = searchBy
     st.session_state.dfAll = None
