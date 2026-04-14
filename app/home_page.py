@@ -124,7 +124,6 @@ year_range = st.slider("Year range:", min_value=2010, max_value=2026, value=(202
 
 y0, y1 = year_range
 options = ['Institute', 'Author']
-#searchBy = st.pills('Search by: ', options, selection_mode="single", default=None)
 searchBy = options[1]
 if searchBy != st.session_state.search_mode:
     st.session_state.search_mode = searchBy
@@ -135,12 +134,8 @@ inputIds = None
 dfAll = {}
 last_warning = None
 
-if searchBy == options[0]:
-    # Selected institutions
-    inputIds = st.text_input("Institute ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://openalex.org/)')
-elif searchBy == options[1]:
-    # Selected authors
-    inputIds = st.text_input("Author ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://openalex.org/)')
+
+inputIds = st.text_input("Author ids:", help='If more than one, separate with commas. IDs must be from OpenAlex (https://openalex.org/)')
 
 # Submit to retrieve info
 if inputIds:
@@ -158,173 +153,72 @@ if inputIds:
                 phase1_weight = 0.8
                 phase2_weight = 0.2
 
-                if searchBy == options[0]:
-                    inst_ids = sanitizeIds(inputIds, st, prefix='i')
+                last_warning = None
+                aids = sanitizeIds(inputIds, st, prefix='A')
 
-                    progress_bar = st.progress(0)
-                    last_warning = None
+                filtered_aids = []
+                progress_bar = st.progress(0)
+                total_aids = len(aids)
 
-                    aids_processed = 0
-                    max_aids_seen = 1
-                    insts_processed = 0
-                    total_insts = len(inst_ids)
+                skip_counter = 0
+                max_skips = 3
+                skipping_aids = []
 
-                    for idx, inst in enumerate(inst_ids):
-                        aids = None
-                        for attempt in range(3):
-                            aids, msg, excep = authors_working_at_institution_in_year(inst_id=inst, year=y1, mailto=email, min_total_works=minPapers, min_total_citations=minCitations)
-                            og_aids = aids
-                            filtered_aids = []
-                            if not aids:
-                                if attempt < 2:
-                                    if last_warning is not None:
-                                        last_warning.empty()
-                                    last_warning = st.warning(f"{msg} Retrying...")
-                                    time.sleep(1 * (2 ** attempt))
-                                    continue
-                                else:
-                                    if last_warning is not None:
-                                        last_warning.empty()
-                                    st.warning(f"Skipping institution {inst} due to repeated errors.")
-                                    st.warning(f'We have limited queries to OpenAlex. \n {excep}')
-                                    break
-                            for aid in aids:
-                                try:
-                                    works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
-                                    if works is None:
-                                        st.warning(f"{msg}.")
-                                    if works >= minPapers:
-                                        filtered_aids.append(aid)
-                                except Exception:
-                                    continue
-
-                            if filtered_aids:
-                                aids = filtered_aids
-                                break
-                        if not aids:
-                            st.session_state.skip_counter += 1
-
-                            if st.session_state.skip_counter > 3:
-                                st.error("Too many failed institutions. Stopping execution.")
-                                st.stop()
-
-                            continue
-
-                        aids_processed += len(aids)
-                        max_aids_seen = max(max_aids_seen, aids_processed)
-
-                        phase1_progress = phase1_weight * (aids_processed / max_aids_seen)
-                        progress_bar.progress(min(phase1_progress, phase1_weight))
-                        for attempt in range(3):
-                            try:
-                                df, _, st.session_state.work_citation_cache, e, rate_limited = build_author_df_and_unique_work_distributions(
-                                    aids,
-                                    y0=y0,
-                                    y1=y1,
-                                    mailto=email,
-                                    sleep_s=0.05,
-                                    work_citation_cache=st.session_state.work_citation_cache
-                                )
-                                print(f'rateLimited: {rate_limited}')
-                                if df is not None and not df.empty:
-                                    break
-                                if attempt < 2:
-                                    if last_warning is not None:
-                                        last_warning.empty()
-                                    last_warning = st.warning(
-                                        "Rate limit reached. Retrying request..."
-                                    )
-                                    time.sleep(1 * (2 ** attempt))
-                                if rate_limited and not st.session_state.get("rate_limit_shown", False):
-                                    st.warning(
-                                        "⚠️ OpenAlex rate limit reached. Results may be incomplete, partial data was retrieved.")
-                                    st.session_state.rate_limit_shown = True
-                            except Exception as e:
-                                st.warning(str(e))
-                        if df is None or df.empty:
-                            #last_warning = st.warning("Some author data could not be retrieved due to repeated request errors.")
-                            if rate_limited:
-                                st.warning("⚠️ Partial results due to OpenAlex rate limits.")
-                            else:
-                                st.warning("No data retrieved for these authors.")
-                        else:
-                            dfAll[inst] = df
-
-                        insts_processed += 1
-                        phase2_progress = phase2_weight * (insts_processed / total_insts)
-                        progress_bar.progress(phase1_weight + phase2_progress)
-                    if not dfAll:
-                        st.warning("Some institutions could not be processed due to repeated request errors.")
-                    progress_bar.progress(1.0)
-                elif searchBy == options[1]:
-                    last_warning = None
-                    aids = sanitizeIds(inputIds, st, prefix='A')
-
-                    filtered_aids = []
-                    progress_bar = st.progress(0)
-                    total_aids = len(aids)
-
-                    skip_counter = 0
-                    max_skips = 3
-                    skipping_aids = []
-
-                    for idx, aid in enumerate(aids):
-                        works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
-                        if works is None:
-                            if last_warning is not None:
-                                last_warning.empty()
-                            #last_warning = st.warning(f"{msg}.")
-                            skip_counter += 1
-                            if skip_counter >= max_skips:
-                                if last_warning is not None:
-                                    last_warning.empty()
-                                #st.warning(f"Skipping {aid} due to repeated errors.")
-                                skipping_aids.append(aid)
-                                progress_bar.progress(1.0)
-                        elif works >= minPapers:
-                            filtered_aids.append(aid)
-                        progress_bar.progress((idx + 1) / total_aids * phase1_weight)
-
-                    if skipping_aids is not None:
-                        st.warning(f'Skipping {len(skipping_aids)} authors due to repeated request errors.')
-
-                    if not filtered_aids:
+                for idx, aid in enumerate(aids):
+                    works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
+                    if works is None:
                         if last_warning is not None:
                             last_warning.empty()
-                        last_warning = st.warning(f"No authors have at least {minPapers} papers in the selected period.")
-                    aids = filtered_aids
-
-                    df = None
-                    for attempt in range(3):
-                        df, _, st.session_state.work_citation_cache, e, rate_limited = build_author_df_and_unique_work_distributions(
-                            aids,
-                            y0=y0,
-                            y1=y1,
-                            mailto=email,
-                            sleep_s=0.05,
-                            work_citation_cache=st.session_state.work_citation_cache
-                        )
-                        progress_bar.progress(
-                            phase1_weight + (attempt + 1) / 5 * phase2_weight
-                        )
-                        if rate_limited and not st.session_state.get("rate_limit_shown", False):
-                            st.warning(
-                                "⚠️ OpenAlex rate limit reached. Results may be incomplete, but partial data was retrieved.")
-                            st.session_state.rate_limit_shown = True
-                        if df is not None and not df.empty:
-                            break
-                        if attempt < 2:
+                        skip_counter += 1
+                        if skip_counter >= max_skips:
                             if last_warning is not None:
                                 last_warning.empty()
-                            last_warning = st.warning(
-                                "Rate limit reached. Retrying request..."
-                            )
-                            time.sleep(1 * (2 ** attempt))
-                        else: last_warning.empty()
-                    if df is None or df.empty:
-                        st.warning("No data obtained for these authors.")
+                            skipping_aids.append(aid)
+                            progress_bar.progress(1.0)
+                    elif works >= minPapers:
+                        filtered_aids.append(aid)
+                    progress_bar.progress((idx + 1) / total_aids * phase1_weight)
+
+                if skipping_aids is not None:
+                    st.warning(f'Skipping {len(skipping_aids)} authors due to repeated request errors.')
+
+                if not filtered_aids:
+                    st.warning(f"No authors have at least {minPapers} papers and {minCitations} in the selected period.")
+                    st.stop()
+                aids = filtered_aids
+
+                df = None
+                for attempt in range(3):
+                    df, _, st.session_state.work_citation_cache, e, rate_limited = build_author_df_and_unique_work_distributions(
+                        aids,
+                        y0=y0,
+                        y1=y1,
+                        mailto=email,
+                        sleep_s=0.05,
+                        work_citation_cache=st.session_state.work_citation_cache
+                    )
+                    progress_bar.progress(
+                        phase1_weight + (attempt + 1) / 5 * phase2_weight
+                    )
+                    if rate_limited and not st.session_state.get("rate_limit_shown", False):
+                        st.warning(
+                            "⚠️ OpenAlex rate limit reached. Results may be incomplete, but partial data was retrieved.")
+                        st.session_state.rate_limit_shown = True
+                    if df is not None and not df.empty:
+                        break
+                    if attempt < 2:
+                        if last_warning is not None:
+                            last_warning.empty()
+                        last_warning = st.warning(
+                            "Rate limit reached. Retrying request..."
+                        )
+                        time.sleep(1 * (2 ** attempt))
                     else:
-                        dfAll["inputAIDs"] = df
+                        last_warning.empty()
+                if df is None or df.empty:
+                    st.warning("No data obtained for these authors.")
+                else:
+                    dfAll["inputAIDs"] = df
 
                 st.session_state.dfAll = dfAll
                 progress_bar.progress(1.0)
