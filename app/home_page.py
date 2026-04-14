@@ -274,7 +274,6 @@ if inputIds:
                                 last_warning.empty()
                             last_warning = st.warning(f"{msg}.")
                             skip_counter += 1
-
                             if skip_counter >= max_skips:
                                 if last_warning is not None:
                                     last_warning.empty()
