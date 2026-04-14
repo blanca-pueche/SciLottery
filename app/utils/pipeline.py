@@ -368,7 +368,6 @@ def build_author_df_and_unique_work_distributions(
             e = err
             if "Rate limit" in str(err):
                 rate_limited = True
-            print(f'rate_limited: {rate_limited}')
             break
 
         counter += 1
@@ -396,7 +395,6 @@ def build_author_df_and_unique_work_distributions(
             e = err
             if "Rate limit" in str(err):
                 rate_limited = True
-                print(f'rate_limited: {rate_limited}')
             break
 
     #return df, dist1_unique, work_citation_cache, e

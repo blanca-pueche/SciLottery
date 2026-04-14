@@ -266,22 +266,27 @@ if inputIds:
 
                     skip_counter = 0
                     max_skips = 3
+                    skipping_aids = []
 
                     for idx, aid in enumerate(aids):
                         works, msg = count_author_works_in_period_safe(aid, email, y0, y1)
                         if works is None:
                             if last_warning is not None:
                                 last_warning.empty()
-                            last_warning = st.warning(f"{msg}.")
+                            #last_warning = st.warning(f"{msg}.")
                             skip_counter += 1
                             if skip_counter >= max_skips:
                                 if last_warning is not None:
                                     last_warning.empty()
-                                st.warning(f"Skipping {aid} due to repeated errors.")
+                                #st.warning(f"Skipping {aid} due to repeated errors.")
+                                skipping_aids.append(aid)
                                 progress_bar.progress(1.0)
                         elif works >= minPapers:
                             filtered_aids.append(aid)
                         progress_bar.progress((idx + 1) / total_aids * phase1_weight)
+
+                    if skipping_aids is not None:
+                        st.warning(f'Skipping {len(skipping_aids)} authors due to repeated request errors.')
 
                     if not filtered_aids:
                         if last_warning is not None:
@@ -299,7 +304,6 @@ if inputIds:
                             sleep_s=0.05,
                             work_citation_cache=st.session_state.work_citation_cache
                         )
-                        print(f'rate_limited MAIN: {rate_limited}')
                         progress_bar.progress(
                             phase1_weight + (attempt + 1) / 5 * phase2_weight
                         )
@@ -316,6 +320,7 @@ if inputIds:
                                 "Rate limit reached. Retrying request..."
                             )
                             time.sleep(1 * (2 ** attempt))
+                        else: last_warning.empty()
                     if df is None or df.empty:
                         st.warning("No data obtained for these authors.")
                     else:
