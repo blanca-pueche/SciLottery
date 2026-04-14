@@ -300,9 +300,14 @@ if inputIds:
                             sleep_s=0.05,
                             work_citation_cache=st.session_state.work_citation_cache
                         )
+                        print(f'rate_limited MAIN: {rate_limited}')
                         progress_bar.progress(
                             phase1_weight + (attempt + 1) / 5 * phase2_weight
                         )
+                        if rate_limited and not st.session_state.get("rate_limit_shown", False):
+                            st.warning(
+                                "⚠️ OpenAlex rate limit reached. Results may be incomplete, but partial data was retrieved.")
+                            st.session_state.rate_limit_shown = True
                         if df is not None and not df.empty:
                             break
                         if attempt < 2:
@@ -312,18 +317,8 @@ if inputIds:
                                 "Rate limit reached. Retrying request..."
                             )
                             time.sleep(1 * (2 ** attempt))
-                        if rate_limited and not st.session_state.get("rate_limit_shown", False):
-                            st.warning(
-                                "⚠️ OpenAlex rate limit reached. Results may be incomplete, but partial data was retrieved.")
-                            st.session_state.rate_limit_shown = True
                     if df is None or df.empty:
-                        #if last_warning is not None:
-                        #    last_warning.empty()
-                        #st.warning("Some author data could not be retrieved due to repeated request errors.")
-                        if rate_limited:
-                            st.warning("⚠️ Partial results due to OpenAlex rate limits.")
-                        else:
-                            st.warning("No data retrieved for these authors.")
+                        st.warning("No data obtained for these authors.")
                     else:
                         dfAll["inputAIDs"] = df
 

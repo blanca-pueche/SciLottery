@@ -197,12 +197,10 @@ def get_json_with_retry(endpoint, params, max_retries=3, timeout=60):
             if r.status_code == 429:
                 retry_after = int(r.headers.get("Retry-After", 2))
                 if retry_after > 60:
-                    return {
-                        "__rate_limit__": True,
-                        "retry_after": retry_after
-                    }
-
+                    raise RuntimeError(f"Rate limit ({retry_after}s)")
                 time.sleep(min(retry_after, 5))
+                if attempt == max_retries - 1:
+                    raise RuntimeError(f"Rate limit ({retry_after}s)")
 
                 continue  # retry
 
@@ -211,7 +209,7 @@ def get_json_with_retry(endpoint, params, max_retries=3, timeout=60):
 
         except requests.exceptions.RequestException as e:
             if attempt == max_retries - 1:
-                raise
+                raise RuntimeError(f"Request failed: {e}")
             time.sleep(delay)
             delay *= 2
 
@@ -365,12 +363,13 @@ def build_author_df_and_unique_work_distributions(
             print(counter, row)
             rows.append(row)
 
-
         except Exception as err:
             print(err)
             e = err
             if "Rate limit" in str(err):
                 rate_limited = True
+            print(f'rate_limited: {rate_limited}')
+            break
 
         counter += 1
 
@@ -397,6 +396,7 @@ def build_author_df_and_unique_work_distributions(
             e = err
             if "Rate limit" in str(err):
                 rate_limited = True
+                print(f'rate_limited: {rate_limited}')
             break
 
     #return df, dist1_unique, work_citation_cache, e
