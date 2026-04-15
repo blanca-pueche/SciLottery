@@ -179,11 +179,12 @@ if inputIds:
                         filtered_aids.append(aid)
                     progress_bar.progress((idx + 1) / total_aids * phase1_weight)
 
-                if skipping_aids is not None:
+                if len(skipping_aids) > 0:
                     st.warning(f'Skipping {len(skipping_aids)} authors due to repeated request errors.')
 
-                if not filtered_aids:
+                if not filtered_aids and len(skipping_aids) > 0:
                     st.warning(f"No authors have at least {minPapers} papers and {minCitations} in the selected period.")
+                    progress_bar.progress(1.0)
                     st.stop()
                 aids = filtered_aids
 
