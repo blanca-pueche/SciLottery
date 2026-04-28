@@ -70,7 +70,9 @@ st.markdown(
 
     <p>
         <b>SciLottery</b> implements the models described in 
-        <i>“Research Funding as a Decision Problem Under Heavy-Tailed Uncertainty.”</i> 
+        <i><a href="https://doi.org/10.48550/arXiv.2604.22793" target="_blank">
+        “Research Funding as a Decision Problem Under Heavy-Tailed Uncertainty.”
+        </a></i> 
         It provides a practical way to compute and explore funding allocations based on 
         bibliometric data and decision-theoretic principles.
     </p>
@@ -290,6 +292,19 @@ if dfAll and st.session_state.show_performance:
     gamma = None
 
     st.header('Budget allocation')
+
+    st.markdown(
+        """
+        <p style="font-size:14px; color:#666;">
+            For details on the model parameters, see 
+            <a href="https://doi.org/10.48550/arXiv.2604.22793" target="_blank">
+            the associated paper
+            </a>.
+        </p>
+        """,
+        unsafe_allow_html=True
+    )
+
     B = st.number_input("Total budget:", help="Total amount of money to distribute.", value=1000000.0)
     col1, col2, col3 = st.columns(3)
     with col1:
